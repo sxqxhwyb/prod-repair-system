@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>产线设备报修系统</title>
+<link rel="stylesheet" href="css/common.css?v=3">
+<link rel="stylesheet" href="css/app.css?v=3">
+</head>
+<body>
+
+<!-- ================= 登录页 ================= -->
+<div id="login-page" class="login-page">
+  <div class="login-wrap">
+    <div class="login-banner">
+      <div class="login-brand">
+        <div class="login-logo">🏭</div>
+        <h1>产线设备报修系统</h1>
+        <p>连接器制造 · 设备故障快速响应平台</p>
+      </div>
+      <ul class="login-features">
+        <li><b>📱 手机填报</b><span>工位一键报修，拍照上传故障现象</span></li>
+        <li><b>🔔 自动通知</b><span>报修即推送维修班，抢单/指派双模式</span></li>
+        <li><b>🔄 状态跟踪</b><span>待处理 → 处理中 → 已完成，全程留痕</span></li>
+        <li><b>📊 数据汇总</b><span>响应时长、停机时长、维修工作量自动统计</span></li>
+      </ul>
+      <div class="login-footer-tip">设备管理部 · 系统试运行版本 V1.0</div>
+    </div>
+
+    <div class="login-card">
+      <h2>欢迎登录</h2>
+      <p class="login-sub">请选择您的身份进入对应工作台</p>
+
+      <div class="login-roles" id="login-roles">
+        <div class="login-role active" data-role="operator"><span>👷</span>操作工</div>
+        <div class="login-role" data-role="repairman"><span>🔧</span>维修员</div>
+        <div class="login-role" data-role="admin"><span>📊</span>管理员</div>
+      </div>
+
+      <!-- 操作工 -->
+      <div class="login-pane active" id="pane-operator">
+        <label class="login-label">姓名 <em>*</em></label>
+        <input class="login-input" id="lg-op-name" placeholder="请输入您的姓名，如：刘建军">
+        <label class="login-label">联系电话 <span class="login-tip">选填</span></label>
+        <input class="login-input" id="lg-op-phone" type="tel" maxlength="11" placeholder="方便维修员现场联系">
+        <button class="login-btn" id="btn-login-operator">进入操作工工作台 →</button>
+        <p class="login-hint">操作工可填报故障、跟踪维修进度、对维修服务评价</p>
+      </div>
+
+      <!-- 维修员 -->
+      <div class="login-pane" id="pane-repairman">
+        <label class="login-label">选择维修员身份 <em>*</em></label>
+        <select class="login-input" id="lg-rp-select"></select>
+        <label class="login-label">登录口令</label>
+        <input class="login-input" id="lg-rp-pwd" type="password" placeholder="演示环境任意密码即可登录">
+        <button class="login-btn" id="btn-login-repairman">进入维修员工作台 →</button>
+        <p class="login-hint">维修员可接收报修通知、抢单、记录维修过程</p>
+      </div>
+
+      <!-- 管理员 -->
+      <div class="login-pane" id="pane-admin">
+        <label class="login-label">管理员账号 <em>*</em></label>
+        <input class="login-input" id="lg-ad-account" placeholder="演示账号：admin">
+        <label class="login-label">登录密码 <em>*</em></label>
+        <input class="login-input" id="lg-ad-pwd" type="password" placeholder="演示密码：admin123">
+        <button class="login-btn" id="btn-login-admin">进入管理后台 →</button>
+        <p class="login-hint">管理员可指派工单、查看统计、管理维修员与公告反馈</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 主框架 ================= -->
+<div id="app-shell" class="app-shell" style="display:none">
+
+  <!-- 左侧功能分区 -->
+  <aside class="sidebar">
+    <div class="side-logo">
+      <div class="side-logo-icon">🏭</div>
+      <div class="side-logo-text"><b>产线设备报修</b><span id="side-role-sub">操作工工作台</span></div>
+    </div>
+    <nav class="side-menu" id="side-menu"><!-- 菜单动态渲染 --></nav>
+    <div class="side-bottom">
+      <div class="side-link" id="btn-reset">↺ 重置演示数据</div>
+    </div>
+  </aside>
+
+  <!-- 右侧主区域 -->
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h2 id="top-title">系统首页</h2>
+        <span class="topbar-crumb" id="top-crumb">首页 / 系统首页</span>
+      </div>
+      <div class="topbar-right">
+        <div class="top-bell" id="top-bell" title="待办提醒">🔔<i id="bell-badge" class="bell-badge" style="display:none">0</i></div>
+        <span class="top-role-tag" id="top-role-tag">操作工</span>
+        <div class="top-user">
+          <div class="top-avatar" id="top-avatar">操</div>
+          <span id="top-username">—</span>
+        </div>
+        <button class="top-logout" id="btn-logout">退出登录</button>
+      </div>
+    </header>
+
+    <main class="content" id="content"><!-- 页面内容动态渲染 --></main>
+  </div>
+</div>
+
+<!-- ================= 通用弹窗 ================= -->
+<div class="dialog-mask" id="dialog-mask">
+  <div class="dialog" id="dialog-box">
+    <div class="dialog-head">
+      <h3 id="dialog-title">标题</h3>
+      <div class="dialog-close" id="dialog-close">×</div>
+    </div>
+    <div class="dialog-body" id="dialog-body"></div>
+    <div class="dialog-foot" id="dialog-foot"></div>
+  </div>
+</div>
+
+<div class="img-viewer" id="img-viewer"><img id="img-viewer-el" alt="故障照片"></div>
+<div id="toast"></div>
+
+<script src="js/store.js?v=4"></script>
+<script src="js/app.js?v=4"></script>
+</body>
+</html>
