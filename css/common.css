@@ -1,0 +1,73 @@
+/* ============ 全局公共样式 ============ */
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --primary-light: #eff6ff;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --success: #10b981;
+  --text: #1e293b;
+  --text-2: #64748b;
+  --text-3: #94a3b8;
+  --border: #e2e8f0;
+  --bg: #f1f5f9;
+  --card: #ffffff;
+  --radius: 14px;
+  --shadow: 0 2px 12px rgba(15, 23, 42, .06);
+}
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+button { font-family: inherit; cursor: pointer; border: none; outline: none; }
+input, textarea, select { font-family: inherit; outline: none; }
+
+#toast {
+  position: fixed; left: 50%; top: 45%;
+  transform: translate(-50%, -50%);
+  background: rgba(30, 41, 59, .92); color: #fff;
+  padding: 12px 22px; border-radius: 10px;
+  font-size: 14px; z-index: 9999;
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s;
+  max-width: 80%; text-align: center;
+}
+#toast.show { opacity: 1; }
+
+/* 弹层 */
+.modal-mask, .img-preview-mask {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .55);
+  display: none; align-items: flex-end; justify-content: center;
+  z-index: 1000;
+}
+.modal-mask.show, .img-preview-mask.show { display: flex; }
+.modal {
+  background: #fff; width: 100%; max-width: 520px;
+  border-radius: 18px 18px 0 0;
+  padding: 22px 20px calc(20px + env(safe-area-inset-bottom));
+  animation: slideUp .25s ease;
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.modal h3 { text-align: center; font-size: 17px; }
+.modal-sub { text-align: center; color: var(--text-3); font-size: 13px; margin: 6px 0 16px; }
+.modal-actions { display: flex; gap: 12px; margin-top: 16px; }
+.modal-actions button { flex: 1; height: 44px; border-radius: 10px; font-size: 15px; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:active { background: var(--primary-dark); }
+.btn-ghost { background: #f1f5f9; color: var(--text-2); }
+
+.img-preview-mask { align-items: center; padding: 24px; }
+.img-preview-mask img { max-width: 100%; max-height: 80vh; border-radius: 10px; }
+
+/* 空状态 */
+.empty { text-align: center; padding: 70px 0; color: var(--text-3); }
+.empty-icon { font-size: 52px; margin-bottom: 12px; }
