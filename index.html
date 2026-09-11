@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>产线设备报修系统</title>
-<link rel="stylesheet" href="css/common.css?v=3">
-<link rel="stylesheet" href="css/app.css?v=3">
+<link rel="stylesheet" href="css/common.css?v=5">
+<link rel="stylesheet" href="css/app.css?v=5">
 </head>
 <body>
 
@@ -28,6 +28,7 @@
     </div>
 
     <div class="login-card">
+      <div class="login-scan-tip" id="login-scan-tip" style="display:none"></div>
       <h2>欢迎登录</h2>
       <p class="login-sub">请选择您的身份进入对应工作台</p>
 
@@ -122,7 +123,8 @@
 <div class="img-viewer" id="img-viewer"><img id="img-viewer-el" alt="故障照片"></div>
 <div id="toast"></div>
 
-<script src="js/store.js?v=4"></script>
-<script src="js/app.js?v=4"></script>
+<script src="js/store.js?v=5"></script>
+<script src="js/qrcode.min.js?v=5"></script>
+<script src="js/app.js?v=5"></script>
 </body>
 </html>
