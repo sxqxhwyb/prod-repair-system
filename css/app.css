@@ -506,6 +506,80 @@ select.login-input { cursor: pointer; }
 .empty-box { text-align: center; padding: 60px 0; color: #94a3b8; }
 .empty-box .empty-icon { font-size: 48px; margin-bottom: 10px; }
 
+/* ============================================================
+   二维码扫码报修（v5）
+   ============================================================ */
+/* 等宽编号 / 不换行 */
+.mono { font-family: Consolas, 'Courier New', monospace; }
+.nowrap { white-space: nowrap; }
+
+/* 登录页扫码提示条 */
+.login-scan-tip {
+  display: flex; align-items: flex-start; gap: 8px;
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
+  border-radius: 9px; padding: 10px 12px; margin-bottom: 16px;
+  font-size: 12.5px; line-height: 1.6;
+}
+.login-scan-tip b { color: #1d4ed8; }
+.login-scan-tip .mono { color: #1d4ed8; }
+.login-scan-tip #scan-tip-close {
+  margin-left: auto; cursor: pointer; color: #60a5fa; font-size: 18px;
+  line-height: 1; padding: 0 2px; flex: none; font-weight: 700;
+}
+.login-scan-tip #scan-tip-close:hover { color: #1d4ed8; }
+
+/* 报修页顶部扫码绑定信息条 */
+.scan-bar {
+  display: flex; align-items: center; gap: 13px;
+  background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
+  border: 1px solid #86efac; border-radius: 10px;
+  padding: 13px 16px; margin-bottom: 16px;
+}
+.scan-bar .scan-ico { font-size: 26px; flex: none; }
+.scan-info { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: #15803d; }
+.scan-info b { font-size: 14px; color: #166534; }
+.scan-unbind {
+  margin-left: auto; flex: none; cursor: pointer; text-align: center;
+  color: #16a34a; font-size: 12px; line-height: 1.5;
+  border: 1px dashed #86efac; border-radius: 8px; padding: 7px 10px;
+  transition: background .15s;
+}
+.scan-unbind:hover { background: #dcfce7; }
+
+/* 扫码锁定态：chip 不可点、输入框灰底 */
+.opt-row.locked { pointer-events: none; opacity: .9; }
+.opt-row.locked .opt-chip { background: #f8fafc; border-color: #e2e8f0; color: #64748b; }
+.opt-row.locked .opt-chip.active { background: #f1f5f9; border-color: #cbd5e1; color: #334155; font-weight: 600; }
+.f-input.locked-input, .f-input[readonly] { background: #f8fafc; color: #475569; cursor: default; }
+
+/* 设备台账卡片（操作工 / 维修员视图） */
+.ledger-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 13px; }
+.ledger-card {
+  border: 1px solid #e8ecf1; border-radius: 10px; padding: 14px;
+  display: flex; flex-direction: column; gap: 10px; transition: box-shadow .15s;
+}
+.ledger-card:hover { box-shadow: 0 4px 14px rgba(15, 23, 42, .07); }
+.lc-top { display: flex; align-items: center; gap: 11px; }
+.lc-top > .eq-icon { font-size: 25px; flex: none; }
+.lc-top b { font-size: 14px; color: #1e293b; }
+.lc-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
+
+/* 二维码弹窗 */
+.qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 0 2px; }
+.qr-box {
+  width: 228px; height: 228px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid #e8ecf1; border-radius: 8px; padding: 8px; background: #fff;
+}
+.qr-box canvas, .qr-box img { border-radius: 4px; }
+.qr-no { font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 8px; }
+.qr-devname { font-size: 14px; color: #334155; }
+.qr-meta { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-top: 2px; }
+.qr-url {
+  margin: 13px 4px 0; padding: 8px 10px; background: #f8fafc; border: 1px dashed #cbd5e1;
+  border-radius: 7px; font-size: 11.5px; color: #64748b; word-break: break-all; line-height: 1.5;
+}
+.qr-tip { text-align: center; color: #94a3b8; font-size: 12px; margin: 10px 4px 0; line-height: 1.7; }
+
 /* 响应式 */
 @media (max-width: 1200px) {
   .stat-row, .stat-row.eight { grid-template-columns: repeat(3, 1fr); }
@@ -524,4 +598,8 @@ select.login-input { cursor: pointer; }
   .topbar-crumb, .top-user span { display: none; }
   .login-banner { display: none; }
   .login-card { padding: 34px 26px; }
+  .scan-bar { flex-wrap: wrap; }
+  .scan-unbind { margin-left: 0; }
+  .card-title { flex-wrap: wrap; gap: 8px; }
+  .data-table { font-size: 12.5px; }
 }
