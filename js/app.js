@@ -48,7 +48,7 @@
         { key: 'records', icon: '📁', label: '维修记录' }
       ]},
       { group: '基础配置', items: [
-        { key: 'equip', icon: '🏭', label: '设备信息' },
+        { key: 'equip', icon: '🏷️', label: '设备台账' },
         { key: 'workers', icon: '👷', label: '维修人员' },
         { key: 'notice', icon: '📢', label: '公告管理' },
         { key: 'feedback', icon: '💬', label: '反馈管理', badge: 'unreplied' }
@@ -71,7 +71,9 @@
     detailId: null,
     rateScore: 0,
     form: { line: '', equipType: '', level: 'normal', images: [] },
-    fbType: 'suggest'
+    fbType: 'suggest',
+    scanEquip: null,      // 扫码绑定的主设备对象
+    pendingScanNo: null   // 未登录时扫码携带的设备编号
   };
 
   /* ---------- 工具 ---------- */
@@ -113,6 +115,61 @@
     var s = '';
     for (var i = 0; i < 5; i++) s += i < n ? '★' : '<span class="star-gray">★</span>';
     return '<span class="stars">' + s + '</span>';
+  }
+
+  /* ---------- 扫码报修路由（#/report?eq=主设备编号） ---------- */
+  // 二维码内的完整 URL（本地/公网自适应）
+  function scanUrl(no) {
+    return location.origin + location.pathname + '#/report?eq=' + encodeURIComponent(no);
+  }
+  function readScanHash() {
+    var m = (location.hash || '').match(/^#\/report\?(?:.*&)?eq=([^&]+)/);
+    if (!m) return null;
+    try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+  }
+  function showLoginScanTip(no) {
+    var box = $('#login-scan-tip');
+    if (!box) return;
+    var eq = DB.getEquipmentByNo(no);
+    var msg = eq
+      ? '📷 扫码报修：设备 <b class="mono">' + esc(eq.no) + '</b>（' + esc(eq.name) + '）。请以操作工身份输入姓名进入，设备信息将自动带出。'
+      : '📷 扫码报修：设备编号 <b class="mono">' + esc(no) + '</b> 尚未在台账中登记，进入后请核对设备信息。';
+    box.innerHTML = msg + '<span id="scan-tip-close" title="关闭">×</span>';
+    box.style.display = 'flex';
+    var x = $('#scan-tip-close');
+    if (x) x.onclick = function () { box.style.display = 'none'; state.pendingScanNo = null; history.replaceState(null, '', location.pathname + location.search); };
+    // 扫码默认是操作工场景，自动切到操作工 tab
+    var opTab = document.querySelector('.login-role[data-role="operator"]');
+    if (opTab && !$('#pane-operator').classList.contains('active')) opTab.click();
+    $('#lg-op-name') && $('#lg-op-name').focus();
+  }
+  function hideLoginScanTip() {
+    var box = $('#login-scan-tip');
+    if (box) box.style.display = 'none';
+  }
+  // 已登录 / 登录后：应用扫码目标
+  function applyPendingScan() {
+    var no = state.pendingScanNo || readScanHash();
+    if (!no) return false;
+    var eq = DB.getEquipmentByNo(no);
+    state.page = 'report';
+    if (eq) {
+      state.scanEquip = eq;
+    } else {
+      state.scanEquip = null;
+      toast('设备编号「' + no + '」不在台账，请手动选择设备信息');
+    }
+    hideLoginScanTip();
+    renderMenu();
+    renderPage();
+    renderBell();
+    return true;
+  }
+  function clearScan(keepHash) {
+    state.scanEquip = null;
+    state.pendingScanNo = null;
+    hideLoginScanTip();
+    if (!keepHash && location.hash) history.replaceState(null, '', location.pathname + location.search);
   }
 
   /* ============================================================
@@ -181,6 +238,16 @@
     $('#top-role-tag').className = 'top-role-tag ' + meta.cls;
     $('#top-username').textContent = role.name;
     $('#top-avatar').textContent = role.name.charAt(0);
+    // 扫码进入：登录后直接打开已绑定设备的报修单（仅操作工）
+    if (state.pendingScanNo || readScanHash()) {
+      if (role.type !== 'operator') {
+        toast('扫码报修仅限操作工身份使用，已为您忽略扫码信息');
+        clearScan();
+      } else {
+        applyPendingScan();
+        return;
+      }
+    }
     renderMenu();
     renderPage();
     renderBell();
@@ -189,9 +256,12 @@
   function logout() {
     DB.clearRole();
     state.role = null;
+    state.scanEquip = null;
     $('#app-shell').style.display = 'none';
     $('#login-page').style.display = 'flex';
     $('#lg-ad-pwd').value = '';
+    var no = readScanHash();
+    if (no) { state.pendingScanNo = no; showLoginScanTip(no); } else hideLoginScanTip();
   }
 
   /* ============================================================
@@ -224,6 +294,8 @@
   }
 
   function goPage(key, filter) {
+    // 从菜单正常进入 = 退出扫码绑定模式（扫码入口走 applyPendingScan）
+    if (state.scanEquip || state.pendingScanNo || readScanHash()) clearScan();
     state.page = key;
     state.orderFilter = filter || 'all';
     state.kw = '';
@@ -240,8 +312,10 @@
 
   function renderPage() {
     var p = state.page;
-    $('#top-title').textContent = PAGE_TITLES[p] || '系统首页';
-    $('#top-crumb').textContent = '首页 / ' + (PAGE_TITLES[p] || '系统首页');
+    var title = PAGE_TITLES[p] || '系统首页';
+    if (p === 'equip' && state.role.type === 'admin') title = '设备台账';
+    $('#top-title').textContent = title;
+    $('#top-crumb').textContent = '首页 / ' + title;
     var c = $('#content');
     if (p === 'home') renderHome(c);
     else if (p === 'report') renderReport(c);
@@ -370,18 +444,39 @@
    * 操作工 - 设备报修表单
    * ============================================================ */
   function renderReport(c) {
-    state.form = { line: '', equipType: '', level: 'normal', images: [] };
+    var scan = state.scanEquip;
+    state.form = {
+      line: scan ? scan.line : '',
+      equipType: scan ? scan.equipType : '',
+      level: 'normal', images: []
+    };
+    var scanBar = scan
+      ? '<div class="scan-bar">' +
+          '<span class="scan-ico">📷</span>' +
+          '<div class="scan-info"><b>已扫码绑定主设备：<span class="mono">' + esc(scan.no) + '</span></b>' +
+          '<span>' + esc(scan.name) + ' ｜ 产线 / 类型 / 工位已自动带出且不可修改，只需填写故障信息</span></div>' +
+          '<span class="scan-unbind" id="f-unbind">取消绑定<br>手动填写</span>' +
+        '</div>'
+      : '';
+    var locked = scan ? ' readonly' : '';
+    var lockedCls = scan ? ' locked-input' : '';
+    var dataList = '<datalist id="equip-nos">' + DB.listEquipments().map(function (e) {
+      return '<option value="' + esc(e.no) + '">' + esc(e.name) + '｜' + esc(DB.getLine(e.line).name) + '</option>';
+    }).join('') + '</datalist>';
     c.innerHTML =
+      scanBar +
       '<div class="card"><div class="card-title">设备报修单</div>' +
+      dataList +
       '<div class="form-grid">' +
-        '<div class="f-item full"><label>所属产线 <em>*</em></label><div class="f-ctl"><div class="opt-row" id="f-line"></div></div></div>' +
-        '<div class="f-item full"><label>设备类型 <em>*</em></label><div class="f-ctl"><div class="opt-row" id="f-equip"></div></div></div>' +
+        '<div class="f-item full"><label>所属产线 <em>*</em></label><div class="f-ctl"><div class="opt-row' + (scan ? ' locked' : '') + '" id="f-line"></div></div></div>' +
+        '<div class="f-item full"><label>设备类型 <em>*</em></label><div class="f-ctl"><div class="opt-row' + (scan ? ' locked' : '') + '" id="f-equip"></div></div></div>' +
         '<div class="f-item full"><label>故障等级</label><div class="f-ctl"><div class="opt-row" id="f-level">' +
-          '<div class="opt-chip' + (state.form.level === 'normal' ? ' active' : '') + '" data-v="normal">一般故障</div>' +
-          '<div class="opt-chip danger' + (state.form.level === 'urgent' ? ' active' : '') + '" data-v="urgent">🚨 紧急·停机</div>' +
+          '<div class="opt-chip active" data-v="normal">一般故障</div>' +
+          '<div class="opt-chip danger" data-v="urgent">🚨 紧急·停机</div>' +
         '</div></div></div>' +
-        '<div class="f-item"><label>设备编号 <em>*</em></label><div class="f-ctl"><input class="f-input" id="f-equipno" placeholder="如：ZS-120T-03（见设备铭牌）"></div></div>' +
-        '<div class="f-item"><label>工位 <em>*</em></label><div class="f-ctl"><input class="f-input" id="f-station" placeholder="如：注塑车间 03 号位"></div></div>' +
+        '<div class="f-item"><label>设备编号 <em>*</em></label><div class="f-ctl"><input class="f-input' + lockedCls + '" id="f-equipno" list="equip-nos"' + locked + ' value="' + (scan ? esc(scan.no) : '') + '" placeholder="如：ZS-120T-03（见设备铭牌/二维码）">' +
+          (scan ? '' : '<div class="f-tip">可直接输入或选择已绑定的主设备编号，自动带出设备信息</div>') + '</div></div>' +
+        '<div class="f-item"><label>工位 <em>*</em></label><div class="f-ctl"><input class="f-input' + lockedCls + '" id="f-station"' + locked + ' value="' + (scan ? esc(scan.workstation) : '') + '" placeholder="如：注塑车间 03 号位"></div></div>' +
         '<div class="f-item full"><label>故障现象 <em>*</em></label><div class="f-ctl"><textarea class="f-textarea" id="f-fault" maxlength="300" placeholder="请描述故障现象：异响 / 卡料 / 报警 / 尺寸异常等…"></textarea>' +
           '<div class="f-tip">描述越清楚，维修员判断越快，紧急停机请同时电话联系维修班</div></div></div>' +
         '<div class="f-item full"><label>故障照片</label><div class="f-ctl"><div class="img-uploader" id="f-imgs">' +
@@ -394,26 +489,31 @@
       '<div style="text-align:center;margin-top:8px"><button class="btn primary" id="f-submit" style="padding:11px 46px;font-size:15px">📤 提交报修</button></div>' +
       '</div>';
 
-    // 产线 / 设备类型选项
+    // 产线 / 设备类型选项（扫码模式自动选中并锁定）
     $('#f-line').innerHTML = DB.LINES.map(function (l) {
-      return '<div class="opt-chip" data-id="' + l.id + '">' + esc(l.name) + '</div>';
+      return '<div class="opt-chip' + (scan && l.id === scan.line ? ' active' : '') + '" data-id="' + l.id + '">' + esc(l.name) + '</div>';
     }).join('');
     $('#f-equip').innerHTML = DB.EQUIP_TYPES.map(function (t) {
-      return '<div class="opt-chip" data-id="' + t.id + '">' + t.icon + ' ' + esc(t.name) + '</div>';
+      return '<div class="opt-chip' + (scan && t.id === scan.equipType ? ' active' : '') + '" data-id="' + t.id + '">' + t.icon + ' ' + esc(t.name) + '</div>';
     }).join('');
 
+    function setActiveChip(containerId, id) {
+      $all('#' + containerId + ' .opt-chip').forEach(function (x) {
+        x.classList.toggle('active', x.dataset.id === id);
+      });
+    }
     $all('#f-line .opt-chip').forEach(function (el) {
       el.onclick = function () {
+        if (state.scanEquip) return;
         state.form.line = el.dataset.id;
-        $all('#f-line .opt-chip').forEach(function (x) { x.classList.remove('active'); });
-        el.classList.add('active');
+        setActiveChip('f-line', el.dataset.id);
       };
     });
     $all('#f-equip .opt-chip').forEach(function (el) {
       el.onclick = function () {
+        if (state.scanEquip) return;
         state.form.equipType = el.dataset.id;
-        $all('#f-equip .opt-chip').forEach(function (x) { x.classList.remove('active'); });
-        el.classList.add('active');
+        setActiveChip('f-equip', el.dataset.id);
       };
     });
     $all('#f-level .opt-chip').forEach(function (el) {
@@ -423,6 +523,28 @@
         el.classList.add('active');
       };
     });
+
+    // 手动模式：输入已绑定的主设备编号 → 自动带出全部设备信息
+    if (!scan) {
+      $('#f-equipno').addEventListener('blur', function () {
+        var eq = DB.getEquipmentByNo(this.value);
+        if (!eq) return;
+        this.value = eq.no;
+        state.form.line = eq.line;
+        state.form.equipType = eq.equipType;
+        setActiveChip('f-line', eq.line);
+        setActiveChip('f-equip', eq.equipType);
+        if (!$('#f-station').value.trim()) $('#f-station').value = eq.workstation;
+        toast('已匹配台账主设备「' + eq.no + '」，设备信息自动带出');
+      });
+    }
+
+    // 取消扫码绑定，转为手动填写
+    var unbind = $('#f-unbind');
+    if (unbind) unbind.onclick = function () {
+      clearScan();
+      renderPage();
+    };
 
     // 图片上传
     $('#f-imgadd').onclick = function () { $('#f-file').click(); };
@@ -480,6 +602,7 @@
       addMyId(MY_ORDER_KEY, o.id);
       state.role.name = name; state.role.phone = phone;
       DB.setRole(state.role);
+      clearScan();
       toast('报修提交成功，已通知维修班！');
       goPage('mine');
     };
@@ -637,11 +760,39 @@
   }
 
   /* ============================================================
-   * 设备信息（三角色共用）
+   * 设备台账 / 设备信息（管理员维护二维码绑定，其他角色查看）
    * ============================================================ */
   function renderEquip(c) {
+    var isAdmin = state.role.type === 'admin';
     var all = DB.listOrders();
-    c.innerHTML =
+    var list = DB.listEquipments();
+
+    var ledgerCard;
+    if (isAdmin) {
+      ledgerCard =
+        '<div class="card"><div class="card-title">主设备台账（' + list.length + '）' +
+          '<span class="title-actions"><span class="muted" style="font-weight:400;font-size:12px">二维码与主设备编号一一绑定，打印后张贴于设备上</span>' +
+          '<button class="btn primary sm" id="eq-add">＋ 新增主设备</button></span></div>' +
+          '<table class="data-table"><thead><tr>' +
+          '<th>主设备编号</th><th>设备名称</th><th>设备类型</th><th>所属产线</th><th>工位</th><th>历史报修</th><th>操作</th>' +
+          '</tr></thead><tbody id="eq-body"></tbody></table></div>';
+    } else {
+      ledgerCard =
+        '<div class="card"><div class="card-title">主设备扫码报修（' + list.length + '）' +
+          '<span class="muted" style="font-weight:400;font-size:12px">扫描设备上的二维码即可一键报修</span></div>' +
+          '<div class="ledger-grid" id="eq-body">' +
+          list.map(function (e) {
+            var cnt = all.filter(function (o) { return o.equipNo.toUpperCase() === e.no.toUpperCase(); }).length;
+            return '<div class="ledger-card">' +
+              '<div class="lc-top"><span class="eq-icon">' + DB.getEquipType(e.equipType).icon + '</span>' +
+              '<div><b class="mono">' + esc(e.no) + '</b><div class="muted">' + esc(e.name) + '</div></div>' +
+              '<button class="btn primary sm" data-qr="' + e.id + '" style="margin-left:auto">📷 二维码</button></div>' +
+              '<div class="lc-meta">' + lineTag(e.line) + '<span class="muted">📍 ' + esc(e.workstation) + '</span>' +
+              '<span class="muted">历史报修 ' + cnt + ' 次</span></div></div>';
+          }).join('') + '</div></div>';
+    }
+
+    c.innerHTML = ledgerCard +
       '<div class="card"><div class="card-title">产线 / 车间分布</div>' +
         '<div class="equip-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">' +
         DB.LINES.map(function (l) {
@@ -649,12 +800,150 @@
           return '<div class="line-card" style="background:linear-gradient(135deg,' + l.color + ',' + l.color + 'cc)">' +
             '<b>' + esc(l.name) + '</b><span>累计报修 ' + cnt + ' 单</span></div>';
         }).join('') + '</div></div>' +
-      '<div class="card"><div class="card-title">设备类型台账</div>' +
+      '<div class="card"><div class="card-title">设备类型分布</div>' +
         '<div class="equip-grid">' +
         DB.EQUIP_TYPES.map(function (t) {
           var cnt = all.filter(function (o) { return o.equipType === t.id; }).length;
           return '<div class="equip-card"><span class="eq-icon">' + t.icon + '</span><div><b>' + esc(t.name) + '</b><span>历史报修 ' + cnt + ' 次</span></div></div>';
         }).join('') + '</div></div>';
+
+    if (isAdmin) {
+      $('#eq-body').innerHTML = list.length ? list.map(function (e) {
+        var cnt = all.filter(function (o) { return o.equipNo.toUpperCase() === e.no.toUpperCase(); }).length;
+        return '<tr><td><b class="mono">🏷️ ' + esc(e.no) + '</b></td>' +
+          '<td>' + esc(e.name) + '</td>' +
+          '<td>' + DB.getEquipType(e.equipType).icon + ' ' + esc(DB.getEquipType(e.equipType).name) + '</td>' +
+          '<td>' + lineTag(e.line) + '</td>' +
+          '<td>' + esc(e.workstation) + '</td>' +
+          '<td>' + cnt + ' 次</td>' +
+          '<td class="nowrap">' +
+            '<button class="btn primary sm" data-qr="' + e.id + '">📷 二维码</button>' +
+            '<button class="btn sm" data-eqedit="' + e.id + '">编辑</button>' +
+            '<button class="btn danger sm" data-eqdel="' + e.id + '">移除</button>' +
+          '</td></tr>';
+      }).join('') : '<tr><td colspan="7" class="table-empty">暂无主设备，请先新增并绑定二维码</td></tr>';
+      $('#eq-add').onclick = function () { openEquipmentDialog(null); };
+      $all('#eq-body [data-eqedit]').forEach(function (b) {
+        b.onclick = function () { openEquipmentDialog(DB.getEquipment(b.dataset.eqedit)); };
+      });
+      $all('#eq-body [data-eqdel]').forEach(function (b) {
+        b.onclick = function () {
+          var e = DB.getEquipment(b.dataset.eqdel);
+          if (e && confirm('确认移除主设备「' + e.no + '」？其二维码将失效（不影响历史工单）。')) {
+            DB.removeEquipment(e.id); toast('已移除'); renderPage();
+          }
+        };
+      });
+    }
+    $all('#content [data-qr]').forEach(function (b) {
+      b.onclick = function () { openQrDialog(DB.getEquipment(b.dataset.qr)); };
+    });
+  }
+
+  /* ---------- 设备二维码弹窗（生成 / 打印 / 下载） ---------- */
+  function openQrDialog(e) {
+    if (!e) return;
+    var url = scanUrl(e.no);
+    var body =
+      '<div class="qr-wrap">' +
+        '<div id="qr-box" class="qr-box"></div>' +
+        '<div class="qr-no mono">🏷️ ' + esc(e.no) + '</div>' +
+        '<div class="qr-devname">' + DB.getEquipType(e.equipType).icon + ' ' + esc(e.name) + '</div>' +
+        '<div class="qr-meta">' + lineTag(e.line) + ' <span class="muted">📍 ' + esc(e.workstation) + '</span></div>' +
+      '</div>' +
+      '<div class="qr-url" id="qr-url">' + esc(url) + '</div>' +
+      '<p class="qr-tip">使用微信「扫一扫」或手机相机扫描此码，自动带出设备编号 / 产线 / 类型 / 工位，手机端一键报修</p>';
+    openDialog({
+      title: '设备二维码 · ' + e.no, body: body,
+      foot: '<button class="btn" data-close="1">关闭</button><button class="btn sm" id="qr-print">🖨️ 打印张贴</button><button class="btn primary sm" id="qr-download">⬇️ 下载 PNG</button>',
+      onShow: function () {
+        var box = $('#qr-box');
+        box.innerHTML = '';
+        try {
+          new QRCode(box, {
+            text: url, width: 228, height: 228,
+            colorDark: '#0f172a', colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        } catch (err) {
+          box.innerHTML = '<div class="table-empty">二维码生成失败：' + esc(err.message) + '</div>';
+        }
+        function qrCanvas() { return $('#qr-box canvas') || $('#qr-box img'); }
+        function qrDataUrl() {
+          var cv = $('#qr-box canvas');
+          if (cv) return cv.toDataURL('image/png');
+          var im = $('#qr-box img');
+          return im ? im.src : '';
+        }
+        $('#qr-download').onclick = function () {
+          var src = qrDataUrl();
+          if (!src) { toast('二维码未就绪'); return; }
+          var a = document.createElement('a');
+          a.href = src; a.download = '设备二维码-' + e.no + '.png';
+          document.body.appendChild(a); a.click(); a.remove();
+        };
+        $('#qr-print').onclick = function () {
+          var src = qrDataUrl();
+          if (!src) { toast('二维码未就绪'); return; }
+          var w = window.open('', '_blank');
+          if (!w) { toast('浏览器拦截了打印窗口，请允许弹窗'); return; }
+          w.document.write(
+            '<!doctype html><html><head><meta charset="utf-8"><title>设备二维码 ' + esc(e.no) + '</title>' +
+            '<style>body{font-family:\"Microsoft YaHei\",sans-serif;text-align:center;padding:36px;color:#1e293b}' +
+            'img{width:300px;height:300px}.no{font-size:28px;font-weight:700;margin:16px 0 4px;font-family:Consolas,monospace}' +
+            '.nm{font-size:16px}.mt{color:#64748b;font-size:13px;margin-top:6px}.tp{margin-top:20px;color:#94a3b8;font-size:12px}' +
+            '</style></head><body><img src="' + src + '">' +
+            '<div class="no">' + esc(e.no) + '</div><div class="nm">' + esc(e.name) + '</div>' +
+            '<div class="mt">' + esc(DB.getLine(e.line).name) + ' · ' + esc(e.workstation) + '</div>' +
+            '<div class="tp">微信 / 相机扫码 → 一键报修</div></body></html>'
+          );
+          w.document.close(); w.focus();
+          setTimeout(function () { w.print(); }, 350);
+        };
+      }
+    });
+  }
+
+  /* ---------- 新增 / 编辑主设备 ---------- */
+  function openEquipmentDialog(e) {
+    var isEdit = !!e;
+    var body =
+      '<label class="login-label">主设备编号 <em>*</em></label><input class="f-input" id="eq-no" maxlength="30" placeholder="如：ZS-120T-03（与设备铭牌一致，二维码绑定此编号）" value="' + (isEdit ? esc(e.no) : '') + '">' +
+      (isEdit ? '<div class="f-tip" style="margin:4px 0 0">修改编号后，原二维码将失效，需重新打印张贴</div>' : '') +
+      '<label class="login-label">设备名称</label><input class="f-input" id="eq-name" maxlength="30" placeholder="如：120T注塑机（留空则取设备类型名）" value="' + (isEdit ? esc(e.name) : '') + '">' +
+      '<label class="login-label">所属产线 <em>*</em></label><select class="f-input" id="eq-line">' +
+        DB.LINES.map(function (l) { return '<option value="' + l.id + '"' + (isEdit && l.id === e.line ? ' selected' : '') + '>' + esc(l.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<label class="login-label">设备类型 <em>*</em></label><select class="f-input" id="eq-type">' +
+        DB.EQUIP_TYPES.map(function (t) { return '<option value="' + t.id + '"' + (isEdit && t.id === e.equipType ? ' selected' : '') + '>' + t.icon + ' ' + esc(t.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<label class="login-label">工位 <em>*</em></label><input class="f-input" id="eq-station" maxlength="40" placeholder="如：注塑车间 03 号位" value="' + (isEdit ? esc(e.workstation) : '') + '">';
+    openDialog({
+      title: isEdit ? '编辑主设备' : '新增主设备', body: body,
+      foot: '<button class="btn" data-close="1">取消</button><button class="btn primary" id="eq-ok">' + (isEdit ? '保存' : '确认添加') + '</button>',
+      onShow: function () {
+        $('#eq-ok').onclick = function () {
+          var d = {
+            no: $('#eq-no').value, name: $('#eq-name').value,
+            line: $('#eq-line').value, equipType: $('#eq-type').value,
+            workstation: $('#eq-station').value
+          };
+          if (!d.no.trim()) { toast('请填写主设备编号'); return; }
+          if (!d.workstation.trim()) { toast('请填写工位'); return; }
+          if (isEdit) {
+            if (DB.updateEquipment(e.id, d)) { closeDialog(); toast('已保存，请确认二维码是否需要重新打印'); renderPage(); }
+            else toast('保存失败：编号可能与其他设备重复');
+          } else {
+            var res = DB.addEquipment(d);
+            if (!res.ok) { toast(res.msg); return; }
+            closeDialog();
+            toast('主设备「' + res.equipment.no + '」已绑定，请生成并打印二维码');
+            renderPage();
+            openQrDialog(res.equipment);
+          }
+        };
+      }
+    });
   }
 
   /* ============================================================
@@ -1269,10 +1558,36 @@
       else goPage('mine');
     };
 
+    // 二维码扫码路由：#/report?eq=主设备编号
+    var scanNo = readScanHash();
+    if (scanNo) state.pendingScanNo = scanNo;
+
     // 自动登录
     var saved = DB.getRole();
     if (saved && ROLE_META[saved.type]) enterShell(saved);
-    else $('#login-page').style.display = 'flex';
+    else {
+      $('#login-page').style.display = 'flex';
+      if (scanNo) showLoginScanTip(scanNo);
+    }
+
+    // 已打开页面时再扫码（微信/相机识别新二维码会带 hash 打开）
+    window.addEventListener('hashchange', function () {
+      var no = readScanHash();
+      if (!no) return;
+      state.pendingScanNo = no;
+      if (!state.role) {
+        $('#login-page').style.display = 'flex';
+        $('#app-shell').style.display = 'none';
+        showLoginScanTip(no);
+        return;
+      }
+      if (state.role.type !== 'operator') {
+        toast('扫码报修仅限操作工身份使用');
+        clearScan();
+        return;
+      }
+      applyPendingScan();
+    });
 
     // 定时刷新铃铛
     setInterval(function () { if (state.role) renderBell(); }, 3000);
