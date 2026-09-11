@@ -214,10 +214,25 @@
         author: '设备管理部', t: now - 2 * D },
       { id: uid('n'), title: '关于开展系统试用反馈收集的通知',
         content: '试运行期间，欢迎操作工与维修员通过「试用反馈」提交功能建议或问题反馈，管理员将逐条回复处理。紧急停机类故障请在系统报修的同时电话联系维修班，确保生产快速恢复。',
+        author: '设备管理部', t: now - 1 * D },
+      { id: uid('n'), title: '主设备二维码扫码报修上线通知',
+        content: '设备管理部已为各产线主设备生成专属二维码并张贴于设备醒目位置。操作工发现故障后，使用微信或手机相机扫描设备上的二维码，即可自动带出设备编号、所属产线、设备类型与工位，填写故障现象后一键提交报修，无需手动选择设备信息。',
         author: '设备管理部', t: now - 1 * D }
     ];
 
-    return { workers: workers, orders: orders, feedbacks: feedbacks, notices: notices, seq: 107 };
+    // 主设备台账：二维码与主设备编号一一绑定
+    var equipments = [
+      { id: uid('e'), no: 'ZS-120T-03', name: '120T注塑机',       line: 'inject', equipType: 'injection', workstation: '注塑车间 03 号位', t: now - 200 * D },
+      { id: uid('e'), no: 'ZS-90T-06',  name: '90T注塑机',        line: 'inject', equipType: 'injection', workstation: '注塑车间 06 号位', t: now - 200 * D },
+      { id: uid('e'), no: 'CY-65T-01',  name: '65T精密冲床',      line: 'stamp',  equipType: 'stamp',     workstation: '冲压车间 01 号位', t: now - 190 * D },
+      { id: uid('e'), no: 'ZZ-A1-07',   name: '7工位自动组装机',  line: 'asm1',   equipType: 'assembly',  workstation: '组装一线 07 工位', t: now - 180 * D },
+      { id: uid('e'), no: 'YJ-B1-02',   name: '1号端子压接机',    line: 'asm1',   equipType: 'crimp',     workstation: '组装一线 02 工位', t: now - 170 * D },
+      { id: uid('e'), no: 'YJ-B2-05',   name: '5号端子压接机',    line: 'asm2',   equipType: 'crimp',     workstation: '组装二线 05 工位', t: now - 160 * D },
+      { id: uid('e'), no: 'CCD-QC-02',  name: 'CCD外观检测机',    line: 'qc',     equipType: 'ccd',       workstation: '检测包装车间 02 号位', t: now - 150 * D },
+      { id: uid('e'), no: 'BZ-QC-01',   name: '自动包装机',       line: 'qc',     equipType: 'pack',      workstation: '检测包装车间 包装01号位', t: now - 140 * D }
+    ];
+
+    return { workers: workers, orders: orders, feedbacks: feedbacks, notices: notices, equipments: equipments, seq: 107 };
   }
 
   /* ---------- 存取 ---------- */
@@ -231,6 +246,7 @@
         d.orders = Array.isArray(d.orders) ? d.orders : [];
         d.feedbacks = Array.isArray(d.feedbacks) ? d.feedbacks : [];
         d.notices = Array.isArray(d.notices) ? d.notices : [];
+        d.equipments = Array.isArray(d.equipments) ? d.equipments : [];
         if (typeof d.seq !== 'number') d.seq = 100 + d.orders.length;
         return d;
       }
@@ -447,6 +463,54 @@
     },
     removeNotice: function (id) {
       db.notices = db.notices.filter(function (n) { return n.id !== id; });
+      persist();
+    },
+
+    /* ---------- 主设备台账（二维码绑定主设备编号） ---------- */
+    listEquipments: function () { return db.equipments.slice().sort(function (a, b) { return a.no < b.no ? -1 : 1; }); },
+    getEquipment: function (id) {
+      for (var i = 0; i < db.equipments.length; i++) if (db.equipments[i].id === id) return db.equipments[i];
+      return null;
+    },
+    getEquipmentByNo: function (no) {
+      no = String(no || '').trim().toUpperCase();
+      for (var i = 0; i < db.equipments.length; i++) {
+        if (db.equipments[i].no.toUpperCase() === no) return db.equipments[i];
+      }
+      return null;
+    },
+    addEquipment: function (d) {
+      var no = String(d.no || '').trim().toUpperCase();
+      if (!no) return { ok: false, msg: '请填写主设备编号' };
+      if (this.getEquipmentByNo(no)) return { ok: false, msg: '设备编号「' + no + '」已存在，不能重复绑定' };
+      var lineOk = LINES.some(function (l) { return l.id === d.line; });
+      var typeOk = EQUIP_TYPES.some(function (t) { return t.id === d.equipType; });
+      if (!lineOk || !typeOk) return { ok: false, msg: '请选择所属产线和设备类型' };
+      var e = {
+        id: uid('e'), no: no, name: String(d.name || '').trim() || getEquipType(d.equipType).name,
+        line: d.line, equipType: d.equipType,
+        workstation: String(d.workstation || '').trim(), t: Date.now()
+      };
+      db.equipments.push(e);
+      persist();
+      return { ok: true, equipment: e };
+    },
+    updateEquipment: function (id, d) {
+      var e = this.getEquipment(id);
+      if (!e) return false;
+      var no = String(d.no || '').trim().toUpperCase();
+      var dup = this.getEquipmentByNo(no);
+      if (!no) return false;
+      if (dup && dup.id !== id) return false;
+      e.no = no;
+      e.name = String(d.name || '').trim() || getEquipType(d.equipType).name;
+      e.line = d.line; e.equipType = d.equipType;
+      e.workstation = String(d.workstation || '').trim();
+      persist();
+      return true;
+    },
+    removeEquipment: function (id) {
+      db.equipments = db.equipments.filter(function (e) { return e.id !== id; });
       persist();
     },
 
