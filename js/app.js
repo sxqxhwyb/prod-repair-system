@@ -117,23 +117,66 @@
     return '<span class="stars">' + s + '</span>';
   }
 
-  /* ---------- 扫码报修路由（#/report?eq=主设备编号） ---------- */
-  // 二维码内的完整 URL（本地/公网自适应）
-  function scanUrl(no) {
-    return location.origin + location.pathname + '#/report?eq=' + encodeURIComponent(no);
+  /* ---------- 扫码报修路由（二维码自包含设备信息，跨设备无需后台同步） ----------
+     短码（旧/兼容）：#/report?eq=主设备编号
+     全码（新）：     #/report?eq=编号&l=产线&t=设备类型&w=工位&n=设备名称
+  -------------------------------------------------- */
+  // 生成二维码内容：完整设备信息全部编码进 URL（本地/公网自适应）
+  function scanUrl(eq) {
+    var q = '#/report?eq=' + encodeURIComponent(eq.no);
+    if (eq.line) q += '&l=' + encodeURIComponent(eq.line);
+    if (eq.equipType) q += '&t=' + encodeURIComponent(eq.equipType);
+    if (eq.workstation) q += '&w=' + encodeURIComponent(eq.workstation);
+    if (eq.name) q += '&n=' + encodeURIComponent(eq.name);
+    return location.origin + location.pathname + q;
+  }
+  // 解析扫码 hash 为 payload 对象
+  function readScanPayload() {
+    var m = (location.hash || '').match(/^#\/report\?(.+)$/);
+    if (!m) return null;
+    var p = {};
+    m[1].split('&').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i <= 0) return;
+      var k = kv.slice(0, i);
+      try { p[k] = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' ')); }
+      catch (e) { p[k] = kv.slice(i + 1); }
+    });
+    if (!p.eq) return null;
+    return {
+      no: String(p.eq).trim(),
+      line: p.l || '', equipType: p.t || '',
+      workstation: p.w || '', name: p.n || ''
+    };
   }
   function readScanHash() {
-    var m = (location.hash || '').match(/^#\/report\?(?:.*&)?eq=([^&]+)/);
-    if (!m) return null;
-    try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+    var p = readScanPayload();
+    return p ? p.no : null;
   }
-  function showLoginScanTip(no) {
+  // 解析扫码设备：优先本地台账；查不到但二维码携带了完整信息时，自动登记到本机台账（跨设备"同步"）
+  function resolveScanEquip(p) {
+    if (!p || !p.no) return null;
+    var local = DB.getEquipmentByNo(p.no);
+    if (local) return local;
+    var lineOk = DB.LINES.some(function (l) { return l.id === p.line; });
+    var typeOk = DB.EQUIP_TYPES.some(function (t) { return t.id === p.equipType; });
+    if (lineOk && typeOk && p.workstation) {
+      var res = DB.addEquipment({
+        no: p.no, name: p.name, line: p.line,
+        equipType: p.equipType, workstation: p.workstation
+      });
+      if (res.ok) return res.equipment;
+    }
+    return null;
+  }
+  function showLoginScanTip(p) {
     var box = $('#login-scan-tip');
     if (!box) return;
-    var eq = DB.getEquipmentByNo(no);
+    if (typeof p === 'string') p = { no: p };
+    var eq = resolveScanEquip(p);
     var msg = eq
       ? '📷 扫码报修：设备 <b class="mono">' + esc(eq.no) + '</b>（' + esc(eq.name) + '）。请以操作工身份输入姓名进入，设备信息将自动带出。'
-      : '📷 扫码报修：设备编号 <b class="mono">' + esc(no) + '</b> 尚未在台账中登记，进入后请核对设备信息。';
+      : '📷 扫码报修：设备编号 <b class="mono">' + esc(p.no) + '</b> 尚未在台账中登记，进入后请核对设备信息。';
     box.innerHTML = msg + '<span id="scan-tip-close" title="关闭">×</span>';
     box.style.display = 'flex';
     var x = $('#scan-tip-close');
@@ -149,15 +192,15 @@
   }
   // 已登录 / 登录后：应用扫码目标
   function applyPendingScan() {
-    var no = state.pendingScanNo || readScanHash();
-    if (!no) return false;
-    var eq = DB.getEquipmentByNo(no);
+    var p = readScanPayload();
+    if (!p) return false;
+    var eq = resolveScanEquip(p);
     state.page = 'report';
     if (eq) {
       state.scanEquip = eq;
     } else {
       state.scanEquip = null;
-      toast('设备编号「' + no + '」不在台账，请手动选择设备信息');
+      toast('设备编号「' + p.no + '」不在台账，请手动选择设备信息');
     }
     hideLoginScanTip();
     renderMenu();
@@ -260,8 +303,8 @@
     $('#app-shell').style.display = 'none';
     $('#login-page').style.display = 'flex';
     $('#lg-ad-pwd').value = '';
-    var no = readScanHash();
-    if (no) { state.pendingScanNo = no; showLoginScanTip(no); } else hideLoginScanTip();
+    var payload = readScanPayload();
+    if (payload) { state.pendingScanNo = payload.no; showLoginScanTip(payload); } else hideLoginScanTip();
   }
 
   /* ============================================================
@@ -843,7 +886,7 @@
   /* ---------- 设备二维码弹窗（生成 / 打印 / 下载） ---------- */
   function openQrDialog(e) {
     if (!e) return;
-    var url = scanUrl(e.no);
+    var url = scanUrl(e);
     var body =
       '<div class="qr-wrap">' +
         '<div id="qr-box" class="qr-box"></div>' +
@@ -852,7 +895,7 @@
         '<div class="qr-meta">' + lineTag(e.line) + ' <span class="muted">📍 ' + esc(e.workstation) + '</span></div>' +
       '</div>' +
       '<div class="qr-url" id="qr-url">' + esc(url) + '</div>' +
-      '<p class="qr-tip">使用微信「扫一扫」或手机相机扫描此码，自动带出设备编号 / 产线 / 类型 / 工位，手机端一键报修</p>';
+      '<p class="qr-tip">使用微信「扫一扫」或手机相机扫描此码，自动带出设备编号 / 产线 / 类型 / 工位，手机端一键报修<br>设备信息已写入二维码，任何手机扫码均可识别，无需提前在该手机上登记</p>';
     openDialog({
       title: '设备二维码 · ' + e.no, body: body,
       foot: '<button class="btn" data-close="1">关闭</button><button class="btn sm" id="qr-print">🖨️ 打印张贴</button><button class="btn primary sm" id="qr-download">⬇️ 下载 PNG</button>',
@@ -861,7 +904,7 @@
         box.innerHTML = '';
         try {
           new QRCode(box, {
-            text: url, width: 228, height: 228,
+            text: url, width: 248, height: 248,
             colorDark: '#0f172a', colorLight: '#ffffff',
             correctLevel: QRCode.CorrectLevel.M
           });
@@ -890,7 +933,7 @@
           w.document.write(
             '<!doctype html><html><head><meta charset="utf-8"><title>设备二维码 ' + esc(e.no) + '</title>' +
             '<style>body{font-family:\"Microsoft YaHei\",sans-serif;text-align:center;padding:36px;color:#1e293b}' +
-            'img{width:300px;height:300px}.no{font-size:28px;font-weight:700;margin:16px 0 4px;font-family:Consolas,monospace}' +
+            'img{width:320px;height:320px}.no{font-size:28px;font-weight:700;margin:16px 0 4px;font-family:Consolas,monospace}' +
             '.nm{font-size:16px}.mt{color:#64748b;font-size:13px;margin-top:6px}.tp{margin-top:20px;color:#94a3b8;font-size:12px}' +
             '</style></head><body><img src="' + src + '">' +
             '<div class="no">' + esc(e.no) + '</div><div class="nm">' + esc(e.name) + '</div>' +
@@ -909,7 +952,7 @@
     var isEdit = !!e;
     var body =
       '<label class="login-label">主设备编号 <em>*</em></label><input class="f-input" id="eq-no" maxlength="30" placeholder="如：ZS-120T-03（与设备铭牌一致，二维码绑定此编号）" value="' + (isEdit ? esc(e.no) : '') + '">' +
-      (isEdit ? '<div class="f-tip" style="margin:4px 0 0">修改编号后，原二维码将失效，需重新打印张贴</div>' : '') +
+      (isEdit ? '<div class="f-tip" style="margin:4px 0 0">修改编号 / 工位 / 产线等信息后，已张贴的旧二维码不会自动更新，需重新生成并打印张贴</div>' : '') +
       '<label class="login-label">设备名称</label><input class="f-input" id="eq-name" maxlength="30" placeholder="如：120T注塑机（留空则取设备类型名）" value="' + (isEdit ? esc(e.name) : '') + '">' +
       '<label class="login-label">所属产线 <em>*</em></label><select class="f-input" id="eq-line">' +
         DB.LINES.map(function (l) { return '<option value="' + l.id + '"' + (isEdit && l.id === e.line ? ' selected' : '') + '>' + esc(l.name) + '</option>'; }).join('') +
@@ -1558,27 +1601,27 @@
       else goPage('mine');
     };
 
-    // 二维码扫码路由：#/report?eq=主设备编号
-    var scanNo = readScanHash();
-    if (scanNo) state.pendingScanNo = scanNo;
+    // 二维码扫码路由（短码 eq=编号 或全码携带设备信息）
+    var scanPayload = readScanPayload();
+    if (scanPayload) state.pendingScanNo = scanPayload.no;
 
     // 自动登录
     var saved = DB.getRole();
     if (saved && ROLE_META[saved.type]) enterShell(saved);
     else {
       $('#login-page').style.display = 'flex';
-      if (scanNo) showLoginScanTip(scanNo);
+      if (scanPayload) showLoginScanTip(scanPayload);
     }
 
     // 已打开页面时再扫码（微信/相机识别新二维码会带 hash 打开）
     window.addEventListener('hashchange', function () {
-      var no = readScanHash();
-      if (!no) return;
-      state.pendingScanNo = no;
+      var p = readScanPayload();
+      if (!p) return;
+      state.pendingScanNo = p.no;
       if (!state.role) {
         $('#login-page').style.display = 'flex';
         $('#app-shell').style.display = 'none';
-        showLoginScanTip(no);
+        showLoginScanTip(p);
         return;
       }
       if (state.role.type !== 'operator') {
