@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
  * 产线报修系统（连接器制造） - 数据层 v2（GitHub 仓库当数据库）
  * 状态机：待处理(pending) → 处理中(processing) → 已完成(done)
  * 角色：操作工 operator / 维修员 repairman / 管理员 admin
@@ -9,18 +9,18 @@
 
   var ROLE_KEY = 'prod_repair_role_v1';
 
-  /* ---------- GitHub 仓库配置 ---------- */
+  /* ---------- Gitee 仓库配置（数据仓库，国内直连稳定） ---------- */
   var GH_OWNER = 'sxqxhwyb';
-  var GH_REPO = 'prod-repair-system';
-  var GH_BRANCH = 'main';
+  var GH_REPO = 'prod-repair-data';
+  var GH_BRANCH = 'master';
   var GH_TOKEN = (function () {
-    var c = [90,50,108,48,97,72,86,105,88,51,66,104,100,70,56,120,77,85,70,90,77,106,90,81,86,108,107,119,101,106,108,114,78,122,66,113,84,72,77,52,100,84,82,85,88,50,57,68,98,69,78,48,82,107,90,111,98,71,104,53,98,107,86,66,81,110,108,49,84,84,66,90,100,71,116,117,87,84,100,78,87,69,82,88,84,51,108,114,77,84,90,107,83,122,66,108,90,122,90,70,83,107,74,81,82,68,90,86,84,48,78,82,83,106,90,87,79,69,86,108,90,109,103,53];
+    var c = [56,98,55,55,51,98,49,52,97,102,49,53,56,48,54,51,99,54,48,97,48,56,50,57,98,54,97,98,98,54,50,56];
     var s = ''; for (var i = 0; i < c.length; i++) s += String.fromCharCode(c[i]);
-    return atob(s);
+    return s;
   })();
-  var DATA_DIR = 'data';
-  var RAW_BASE = 'https://raw.githubusercontent.com/' + GH_OWNER + '/' + GH_REPO + '/' + GH_BRANCH + '/' + DATA_DIR + '/';
-  var API_BASE = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/' + DATA_DIR + '/';
+  var DATA_DIR = '';
+  var RAW_BASE = 'https://gitee.com/' + GH_OWNER + '/' + GH_REPO + '/raw/' + GH_BRANCH + '/';
+  var API_BASE = 'https://gitee.com/api/v5/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/';
 
   /* ---------- 常量：产线 / 设备类型 / 故障等级 / 状态 ---------- */
   var LINES = [
@@ -86,29 +86,25 @@
   function b64enc(str) { return btoa(unescape(encodeURIComponent(str))); }
   function b64dec(b64) { return decodeURIComponent(escape(atob(b64))); }
 
-  /* ---------- GitHub API 辅助 ---------- */
-  function authHeaders() {
-    return {
-      'Authorization': 'Bearer ' + GH_TOKEN,
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28'
-    };
+  /* ---------- Gitee API 辅助 ----------
+   * token 走 query 参数，避免 CORS 预检；仓库私有，raw URL 也需带 token */
+  function authHeaders() { return {}; }
+  function rawUrl(file) { return RAW_BASE + file + '?access_token=' + GH_TOKEN + '&t=' + Date.now(); }
+  function apiUrl(file, extra) {
+    var sep = file.indexOf('?') >= 0 ? '&' : '?';
+    return API_BASE + file + sep + 'access_token=' + GH_TOKEN + (extra ? '&' + extra : '');
   }
-  function rawUrl(file) { return RAW_BASE + file + '?t=' + Date.now(); }
-  function apiUrl(file) { return API_BASE + file; }
 
-  /* 拉取文件（读：优先 API 实时数据，回退 raw CDN） */
+  /* 拉取文件（读：优先 API 实时数据，回退 raw） */
   async function pullFile(file) {
-    // 尝试 API（实时数据，但可能受网络/CORS 影响）
     try {
-      var r = await Promise.race([
-        fetch(apiUrl(file), { headers: Object.assign({}, authHeaders(), { 'Accept': 'application/vnd.github.raw' }) }),
-        new Promise(function (_, reject) { setTimeout(function () { reject(new Error('timeout')); }, 6000); })
-      ]);
+      var r = await fetchTimeout(apiUrl(file, 'ref=' + GH_BRANCH), {}, 8000);
       if (r.status === 404) return null;
-      if (r.ok) { var txt = await r.text(); return JSON.parse(txt); }
-    } catch (e) { /* 回退到 raw */ }
-    // 回退到 raw CDN（可能有缓存延迟，但更稳定）
+      if (r.ok) {
+        var j = await r.json();
+        return JSON.parse(b64dec(j.content.replace(/\n/g, '')));
+      }
+    } catch (e) { /* 回退 raw */ }
     var rr = await fetch(rawUrl(file));
     if (rr.status === 404) return null;
     if (!rr.ok) throw new Error('pull ' + file + ': ' + rr.status);
@@ -125,7 +121,7 @@
 
   /* 读取文件 sha + content（用于写入前获取最新版本） */
   async function getFileMeta(file) {
-    var r = await fetchTimeout(apiUrl(file), { headers: authHeaders() }, 10000);
+    var r = await fetchTimeout(apiUrl(file, 'ref=' + GH_BRANCH), {}, 10000);
     if (r.status === 404) return { sha: null, data: null };
     if (!r.ok) throw new Error('meta ' + file + ': ' + r.status);
     var j = await r.json();
@@ -141,15 +137,18 @@
         var newData = mutator(current);
         if (!Array.isArray(newData)) newData = [];
         var content = b64enc(JSON.stringify(newData, null, 2));
+        var body = { access_token: GH_TOKEN, message: 'update ' + file, content: content, branch: GH_BRANCH };
+        if (meta.sha) body.sha = meta.sha;
+        var method = meta.sha ? 'PUT' : 'POST';
         var pr = await fetchTimeout(apiUrl(file), {
-          method: 'PUT',
-          headers: Object.assign({}, authHeaders(), { 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ message: 'update ' + file, content: content, sha: meta.sha, branch: GH_BRANCH })
+          method: method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
         }, 20000);
         if (pr.status === 200 || pr.status === 201) return newData;
         if (pr.status === 409 && attempt < 2) { await new Promise(function(r){setTimeout(r,500*(attempt+1));}); continue; }
         var err = await pr.json().catch(function(){ return {message:'unknown'}; });
-        throw new Error('push ' + file + ': ' + pr.status + ' ' + err.message);
+        throw new Error('push ' + file + ': ' + pr.status + ' ' + (err.message || ''));
       } catch (e) {
         if (attempt < 2 && !String(e.message).match(/^push.*: [45]/)) {
           await new Promise(function(r){setTimeout(r,500*(attempt+1));}); continue;
@@ -163,11 +162,12 @@
   /* 创建新文件（首次初始化） */
   async function createFile(file, data) {
     var content = b64enc(JSON.stringify(data, null, 2));
-    var pr = await fetch(apiUrl(file), {
-      method: 'PUT',
-      headers: Object.assign({}, authHeaders(), { 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ message: 'init ' + file, content: content, branch: GH_BRANCH })
-    });
+    var body = { access_token: GH_TOKEN, message: 'init ' + file, content: content, branch: GH_BRANCH };
+    var pr = await fetchTimeout(apiUrl(file), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }, 20000);
     return pr.status === 200 || pr.status === 201;
   }
 
