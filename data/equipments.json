@@ -1,0 +1,74 @@
+[
+  {
+    "id": "emty1o4uj6zf",
+    "no": "ZS-120T-03",
+    "name": "120T注塑机",
+    "line": "inject",
+    "equipType": "injection",
+    "workstation": "注塑车间 03 号位",
+    "t": 1771916953483
+  },
+  {
+    "id": "emty1o4uj75p",
+    "no": "ZS-90T-06",
+    "name": "90T注塑机",
+    "line": "inject",
+    "equipType": "injection",
+    "workstation": "注塑车间 06 号位",
+    "t": 1771916953483
+  },
+  {
+    "id": "emty1o4uj74",
+    "no": "CY-65T-01",
+    "name": "65T精密冲床",
+    "line": "stamp",
+    "equipType": "stamp",
+    "workstation": "冲压车间 01 号位",
+    "t": 1772780953483
+  },
+  {
+    "id": "emty1o4uj5zg",
+    "no": "ZZ-A1-07",
+    "name": "7工位自动组装机",
+    "line": "asm1",
+    "equipType": "assembly",
+    "workstation": "组装一线 07 工位",
+    "t": 1773644953483
+  },
+  {
+    "id": "emty1o4ujrv",
+    "no": "YJ-B1-02",
+    "name": "1号端子压接机",
+    "line": "asm1",
+    "equipType": "crimp",
+    "workstation": "组装一线 02 工位",
+    "t": 1774508953483
+  },
+  {
+    "id": "emty1o4uj1ks",
+    "no": "YJ-B2-05",
+    "name": "5号端子压接机",
+    "line": "asm2",
+    "equipType": "crimp",
+    "workstation": "组装二线 05 工位",
+    "t": 1775372953483
+  },
+  {
+    "id": "emty1o4uj5h1",
+    "no": "CCD-QC-02",
+    "name": "CCD外观检测机",
+    "line": "qc",
+    "equipType": "ccd",
+    "workstation": "检测包装车间 02 号位",
+    "t": 1776236953483
+  },
+  {
+    "id": "emty1o4uj67b",
+    "no": "BZ-QC-01",
+    "name": "自动包装机",
+    "line": "qc",
+    "equipType": "pack",
+    "workstation": "检测包装车间 包装01号位",
+    "t": 1777100953483
+  }
+]
