@@ -115,9 +115,17 @@
     return await rr.json();
   }
 
+  /* 带超时的 fetch（手机弱网下避免长时间挂起） */
+  function fetchTimeout(url, opts, ms) {
+    return Promise.race([
+      fetch(url, opts),
+      new Promise(function (_, reject) { setTimeout(function () { reject(new Error('timeout ' + ms + 'ms')); }, ms); })
+    ]);
+  }
+
   /* 读取文件 sha + content（用于写入前获取最新版本） */
   async function getFileMeta(file) {
-    var r = await fetch(apiUrl(file), { headers: authHeaders() });
+    var r = await fetchTimeout(apiUrl(file), { headers: authHeaders() }, 10000);
     if (r.status === 404) return { sha: null, data: null };
     if (!r.ok) throw new Error('meta ' + file + ': ' + r.status);
     var j = await r.json();
@@ -133,11 +141,11 @@
         var newData = mutator(current);
         if (!Array.isArray(newData)) newData = [];
         var content = b64enc(JSON.stringify(newData, null, 2));
-        var pr = await fetch(apiUrl(file), {
+        var pr = await fetchTimeout(apiUrl(file), {
           method: 'PUT',
           headers: Object.assign({}, authHeaders(), { 'Content-Type': 'application/json' }),
           body: JSON.stringify({ message: 'update ' + file, content: content, sha: meta.sha, branch: GH_BRANCH })
-        });
+        }, 20000);
         if (pr.status === 200 || pr.status === 201) return newData;
         if (pr.status === 409 && attempt < 2) { await new Promise(function(r){setTimeout(r,500*(attempt+1));}); continue; }
         var err = await pr.json().catch(function(){ return {message:'unknown'}; });
@@ -163,38 +171,132 @@
     return pr.status === 200 || pr.status === 201;
   }
 
-  /* ---------- 缓存 + 后台同步队列 ---------- */
+  /* ---------- 缓存 + 持久化后台同步队列 ----------
+   * 队列元素为「可序列化操作」op（断网/关页面后仍可从 localStorage 恢复补传）：
+   *   {file, type:'insert', item}
+   *   {file, type:'update', id, patch?, append?:{records?,timeline?}}
+   *   {file, type:'delete', id}
+   *   {file, type:'inc', id, field, by, ref}   ref 幂等键，防止重试重复累加
+   *   {file, type:'replaceAll', data}
+   * ------------------------------------------------ */
+  var QUEUE_KEY = 'prod_repair_pending_v1';
   var _cache = { orders: [], equipments: [], workers: [], notices: [], feedbacks: [], seq: 100 };
   var _ready = false;
   var _pulling = false;
 
-  var _sync = {
-    queue: [], processing: false, lastError: null,
-    add: function (file, mutator) {
-      this.queue.push({ file: file, mutator: mutator });
-      if (!this.processing) {
-        this.processing = true;
-        var self = this;
-        this.process().then(function(){}, function(e){ console.error('[sync] unhandled:', e.message); self.processing = false; });
+  function fileKey(file) { return file.replace('.json', ''); }
+
+  /* 把 op 应用到数组（纯函数、幂等，云端重试和本地重放共用） */
+  function applyOp(arr, op) {
+    if (!Array.isArray(arr)) arr = [];
+    if (op.type === 'replaceAll') return Array.isArray(op.data) ? op.data : [];
+    if (op.type === 'insert') {
+      if (!arr.some(function (x) { return x.id === op.item.id; })) arr.push(op.item);
+      return arr;
+    }
+    if (op.type === 'delete') return arr.filter(function (x) { return x.id !== op.id; });
+    var idx = -1;
+    for (var i = 0; i < arr.length; i++) if (arr[i].id === op.id) { idx = i; break; }
+    if (idx < 0) return arr;
+    if (op.type === 'inc') {
+      var y = Object.assign({}, arr[idx]);
+      var refs = Array.isArray(y._incRefs) ? y._incRefs.slice() : [];
+      if (!op.ref || refs.indexOf(op.ref) < 0) {
+        y[op.field] = (Number(y[op.field]) || 0) + (op.by || 1);
+        if (op.ref) refs.push(op.ref);
       }
+      y._incRefs = refs;
+      arr[idx] = y;
+      return arr;
+    }
+    if (op.type === 'update') {
+      var x = Object.assign({}, arr[idx], op.patch || {});
+      if (op.append) {
+        if (Array.isArray(op.append.records)) {
+          x.records = (x.records || []).slice();
+          op.append.records.forEach(function (r) {
+            if (!x.records.some(function (z) { return z.t === r.t && z.text === r.text; })) x.records.push(r);
+          });
+        }
+        if (Array.isArray(op.append.timeline)) {
+          x.timeline = (x.timeline || []).slice();
+          op.append.timeline.forEach(function (tl) {
+            if (!x.timeline.some(function (z) { return z.t === tl.t && z.action === tl.action; })) x.timeline.push(tl);
+          });
+        }
+      }
+      arr[idx] = x;
+      return arr;
+    }
+    return arr;
+  }
+
+  function loadQueue() {
+    try { var q = JSON.parse(global.localStorage.getItem(QUEUE_KEY) || '[]'); return Array.isArray(q) ? q : []; }
+    catch (e) { return []; }
+  }
+  function saveQueue() {
+    try { global.localStorage.setItem(QUEUE_KEY, JSON.stringify(_sync.queue)); } catch (e) {}
+  }
+
+  var _sync = {
+    queue: loadQueue(), processing: false, lastError: null, lastOk: 0,
+    add: function (op) {
+      this.queue.push(op);
+      saveQueue();
+      this.kick();
+    },
+    kick: function () {
+      if (this.processing || this.queue.length === 0 || _pulling) return;
+      this.processing = true;
+      var self = this;
+      this.process().then(function () { self.processing = false; },
+        function (e) { self.processing = false; console.error('[sync] unhandled:', e.message); });
     },
     process: async function () {
       while (this.queue.length > 0) {
-        var w = this.queue.shift();
+        var op = this.queue[0];
         try {
-          var result = await mutateFile(w.file, w.mutator);
-          _cache[w.file.replace('.json', '')] = result;
+          var result = await mutateFile(op.file, function (arr) { return applyOp(arr, op); });
+          _cache[fileKey(op.file)] = result;
+          this.queue.shift();
+          saveQueue();
           this.lastError = null;
+          this.lastOk = Date.now();
         } catch (e) {
+          // 网络失败/4xx 均保留 op 在队首，等待下次 kick（不丢数据）
           this.lastError = e.message;
-          console.error('[sync] ' + w.file + ':', e.message);
-          // 拉取最新云端数据覆盖缓存（保证一致性）
-          try { var fresh = await pullFile(w.file); if (fresh) _cache[w.file.replace('.json','')] = fresh; } catch (e2) {}
+          console.error('[sync]', op.file, op.type, ':', e.message);
+          break;
         }
       }
-      this.processing = false;
+    },
+    pendingCount: function () { return this.queue.length; },
+    whenIdle: function (timeoutMs) {
+      var self = this;
+      if (this.queue.length === 0 && !this.processing) {
+        return Promise.resolve({ ok: !this.lastError, error: this.lastError });
+      }
+      return new Promise(function (resolve) {
+        var done = false;
+        function finish(ok) { if (done) return; done = true; clearInterval(iv); clearTimeout(to); resolve({ ok: ok, error: self.lastError }); }
+        var iv = setInterval(function () {
+          if (self.queue.length === 0 && !self.processing) finish(!self.lastError);
+        }, 200);
+        var to = setTimeout(function () { finish(false); }, timeoutMs || 15000);
+      });
     }
   };
+
+  /* 拉取云端数据后，把本机尚未上传的操作重放回本地缓存（避免被云端旧数据冲掉） */
+  function replayPending() {
+    _sync.queue.forEach(function (op) {
+      if (op.type === 'replaceAll') return;
+      var key = fileKey(op.file);
+      if (Array.isArray(_cache[key])) _cache[key] = applyOp(_cache[key].slice(), op);
+    });
+    _cache.seq = Math.max(_cache.seq, 100 + _cache.orders.length);
+  }
 
   /* ---------- 种子数据 ---------- */
   function seedEquipments() {
@@ -382,8 +484,11 @@
       }
     }
     _cache.seq = 100 + _cache.orders.length;
+    // 重放本机历史未上传的操作，并立即尝试补传
+    replayPending();
     _ready = true;
     _pulling = false;
+    _sync.kick();
   }
 
   async function refresh() {
@@ -401,8 +506,12 @@
         }
       } catch (e) { /* 忽略单个文件错误 */ }
     }
+    // 云端数据覆盖后，重新叠加上本机待上传的操作
+    if (_sync.queue.length > 0) { replayPending(); changed = true; }
     _cache.seq = Math.max(_cache.seq, 100 + _cache.orders.length);
     _pulling = false;
+    // 拉取成功说明网络可达，顺便尝试补传
+    if (_sync.queue.length > 0) _sync.kick();
     return changed;
   }
 
@@ -411,7 +520,16 @@
     LINES: LINES, EQUIP_TYPES: EQUIP_TYPES, LEVELS: LEVELS, STATUS: STATUS, FEEDBACK_TYPES: FEEDBACK_TYPES,
     fmtTime: fmtTime, fmtDuration: fmtDuration, getLine: getLine, getEquipType: getEquipType,
     init: init, refresh: refresh, ready: function () { return _ready; },
-    debugSync: function () { return { processing: _sync.processing, queueLen: _sync.queue.length, lastError: _sync.lastError }; },
+    whenSynced: function (ms) { return _sync.whenIdle(ms); },
+    pendingCount: function () { return _sync.pendingCount(); },
+    kickSync: function () { _sync.kick(); },
+    isOrderPending: function (id) {
+      return _sync.queue.some(function (op) {
+        if (op.file !== 'orders.json') return false;
+        return (op.type === 'insert' && op.item && op.item.id === id) || op.id === id;
+      });
+    },
+    debugSync: function () { return { processing: _sync.processing, queueLen: _sync.queue.length, lastError: _sync.lastError, lastOk: _sync.lastOk }; },
     testWrite: async function () {
       try {
         var meta = await getFileMeta('orders.json');
@@ -429,7 +547,7 @@
 
     /* 图片压缩 */
     compressImage: function (file, maxSize) {
-      maxSize = maxSize || 900;
+      maxSize = maxSize || 800;
       return new Promise(function (resolve, reject) {
         var reader = new FileReader();
         reader.onload = function (e) {
@@ -441,7 +559,7 @@
             var c = document.createElement('canvas');
             c.width = w; c.height = h;
             c.getContext('2d').drawImage(img, 0, 0, w, h);
-            resolve(c.toDataURL('image/jpeg', 0.72));
+            resolve(c.toDataURL('image/jpeg', 0.6));
           };
           img.onerror = reject; img.src = e.target.result;
         };
@@ -451,7 +569,17 @@
 
     /* ---------- 工单 ---------- */
     createOrder: function (d) {
-      _cache.seq = Math.max(_cache.seq, 100 + _cache.orders.length + 1);
+      // 工单号取「当天已有工单号最大序号 +1」，避免跨设备撞号
+      var dd = new Date();
+      var todayPrefix = 'BX' + dd.getFullYear() + pad(dd.getMonth() + 1) + pad(dd.getDate());
+      var maxSeq = 100;
+      _cache.orders.forEach(function (x) {
+        if (x.no && x.no.indexOf(todayPrefix) === 0) {
+          var n = parseInt(x.no.slice(10), 10);
+          if (!isNaN(n) && n > maxSeq) maxSeq = n;
+        }
+      });
+      _cache.seq = Math.max(_cache.seq, maxSeq + 1);
       var now = Date.now();
       var o = {
         id: uid('o'), no: genOrderNo(_cache.seq),
@@ -469,10 +597,7 @@
         ]
       };
       _cache.orders.unshift(o);
-      _sync.add('orders.json', function (orders) {
-        if (!orders.some(function (x) { return x.id === o.id; })) orders.unshift(o);
-        return orders;
-      });
+      _sync.add({ file: 'orders.json', type: 'insert', item: o });
       return o;
     },
     listOrders: function (status) {
@@ -492,14 +617,9 @@
       var now = Date.now(); var note = w.name + '（' + w.skill + '）已抢单，正在前往现场';
       o.status = 'processing'; o.workerId = workerId; o.mode = 'grab'; o.acceptTime = now;
       addTL(o, '接单', note, now);
-      _sync.add('orders.json', function (orders) {
-        var x = orders.find(function (o) { return o.id === orderId; });
-        if (x && x.status === 'pending') {
-          x.status = 'processing'; x.workerId = workerId; x.mode = 'grab'; x.acceptTime = now;
-          x.timeline.push({ t: now, action: '接单', note: note });
-        }
-        return orders;
-      });
+      _sync.add({ file: 'orders.json', type: 'update', id: orderId,
+        patch: { status: 'processing', workerId: workerId, mode: 'grab', acceptTime: now },
+        append: { timeline: [{ t: now, action: '接单', note: note }] } });
       return true;
     },
     assign: function (orderId, workerId) {
@@ -508,14 +628,9 @@
       var now = Date.now(); var note = '管理员指派 ' + w.name + '（' + w.skill + '）处理，维修员已收到通知';
       o.status = 'processing'; o.workerId = workerId; o.mode = 'assign'; o.acceptTime = now;
       addTL(o, '管理员指派', note, now);
-      _sync.add('orders.json', function (orders) {
-        var x = orders.find(function (o) { return o.id === orderId; });
-        if (x && x.status === 'pending') {
-          x.status = 'processing'; x.workerId = workerId; x.mode = 'assign'; x.acceptTime = now;
-          x.timeline.push({ t: now, action: '管理员指派', note: note });
-        }
-        return orders;
-      });
+      _sync.add({ file: 'orders.json', type: 'update', id: orderId,
+        patch: { status: 'processing', workerId: workerId, mode: 'assign', acceptTime: now },
+        append: { timeline: [{ t: now, action: '管理员指派', note: note }] } });
       return true;
     },
     addRecord: function (orderId, text) {
@@ -524,14 +639,8 @@
       var now = Date.now();
       o.records.push({ t: now, text: text });
       addTL(o, '处理记录', text, now);
-      _sync.add('orders.json', function (orders) {
-        var x = orders.find(function (o) { return o.id === orderId; });
-        if (x && x.status === 'processing') {
-          x.records.push({ t: now, text: text });
-          x.timeline.push({ t: now, action: '处理记录', note: text });
-        }
-        return orders;
-      });
+      _sync.add({ file: 'orders.json', type: 'update', id: orderId,
+        append: { records: [{ t: now, text: text }], timeline: [{ t: now, action: '处理记录', note: text }] } });
       return true;
     },
     complete: function (orderId, result, downtimeMin) {
@@ -543,14 +652,13 @@
       if (o.workerId) { var w = this.getWorker(o.workerId); if (w) w.done += 1; }
       var note = o.result + (o.downtimeMin ? '（停机约 ' + o.downtimeMin + ' 分钟）' : '');
       addTL(o, '完成', note, now);
-      _sync.add('orders.json', function (orders) {
-        var x = orders.find(function (o) { return o.id === orderId; });
-        if (x && x.status === 'processing') {
-          x.status = 'done'; x.result = o.result; x.downtimeMin = o.downtimeMin; x.completeTime = now;
-          x.timeline.push({ t: now, action: '完成', note: note });
-        }
-        return orders;
-      });
+      _sync.add({ file: 'orders.json', type: 'update', id: orderId,
+        patch: { status: 'done', result: o.result, downtimeMin: o.downtimeMin, completeTime: now },
+        append: { timeline: [{ t: now, action: '完成', note: note }] } });
+      // 维修员完成数 +1（幂等：以工单号为 ref，重试不会重复累加）
+      if (o.workerId) {
+        _sync.add({ file: 'workers.json', type: 'inc', id: o.workerId, field: 'done', by: 1, ref: orderId });
+      }
       return true;
     },
     rate: function (orderId, score, text) {
@@ -560,14 +668,9 @@
       o.rating = score; o.ratingText = text || '';
       var stars = ''; for (var i = 0; i < score; i++) stars += '★';
       addTL(o, '报修人评价', stars + (text ? ' ' + text : ' 感谢反馈'), now);
-      _sync.add('orders.json', function (orders) {
-        var x = orders.find(function (o) { return o.id === orderId; });
-        if (x && x.status === 'done') {
-          x.rating = score; x.ratingText = text || '';
-          x.timeline.push({ t: now, action: '报修人评价', note: stars + (text ? ' ' + text : ' 感谢反馈') });
-        }
-        return orders;
-      });
+      _sync.add({ file: 'orders.json', type: 'update', id: orderId,
+        patch: { rating: score, ratingText: text || '' },
+        append: { timeline: [{ t: now, action: '报修人评价', note: stars + (text ? ' ' + text : ' 感谢反馈') }] } });
       return true;
     },
     replyRating: function (orderId, text) {
@@ -576,11 +679,9 @@
       var now = Date.now();
       o.workerReply = text;
       addTL(o, '维修员回复', text, now);
-      _sync.add('orders.json', function (orders) {
-        var x = orders.find(function (o) { return o.id === orderId; });
-        if (x) { x.workerReply = text; x.timeline.push({ t: now, action: '维修员回复', note: text }); }
-        return orders;
-      });
+      _sync.add({ file: 'orders.json', type: 'update', id: orderId,
+        patch: { workerReply: text },
+        append: { timeline: [{ t: now, action: '维修员回复', note: text }] } });
       return true;
     },
 
@@ -593,12 +694,12 @@
     addWorker: function (d) {
       var w = { id: uid('w'), name: d.name, phone: d.phone, skill: d.skill, scope: d.scope || '', desc: d.desc || '', done: 0, rating: 5.0, join: Date.now() };
       _cache.workers.push(w);
-      _sync.add('workers.json', function (arr) { if (!arr.some(function(x){return x.id===w.id;})) arr.push(w); return arr; });
+      _sync.add({ file: 'workers.json', type: 'insert', item: w });
       return w;
     },
     removeWorker: function (id) {
       _cache.workers = _cache.workers.filter(function (w) { return w.id !== id; });
-      _sync.add('workers.json', function (arr) { return arr.filter(function(w){return w.id!==id;}); });
+      _sync.add({ file: 'workers.json', type: 'delete', id: id });
     },
     workerBusy: function (id) { return _cache.orders.some(function (o) { return o.workerId === id && o.status === 'processing'; }); },
 
@@ -607,18 +708,14 @@
     addFeedback: function (d) {
       var f = { id: uid('fb'), name: d.name, role: d.role, type: d.type, content: d.content, reply: '', t: Date.now() };
       _cache.feedbacks.unshift(f);
-      _sync.add('feedbacks.json', function (arr) { if (!arr.some(function(x){return x.id===f.id;})) arr.unshift(f); return arr; });
+      _sync.add({ file: 'feedbacks.json', type: 'insert', item: f });
       return f;
     },
     replyFeedback: function (id, reply) {
       for (var i = 0; i < _cache.feedbacks.length; i++) {
         if (_cache.feedbacks[i].id === id) { _cache.feedbacks[i].reply = reply; break; }
       }
-      _sync.add('feedbacks.json', function (arr) {
-        var x = arr.find(function(f){return f.id===id;});
-        if (x) x.reply = reply;
-        return arr;
-      });
+      _sync.add({ file: 'feedbacks.json', type: 'update', id: id, patch: { reply: reply } });
       return true;
     },
 
@@ -627,12 +724,12 @@
     addNotice: function (title, content, author) {
       var n = { id: uid('n'), title: title, content: content, author: author || '设备管理部', t: Date.now() };
       _cache.notices.unshift(n);
-      _sync.add('notices.json', function (arr) { if (!arr.some(function(x){return x.id===n.id;})) arr.unshift(n); return arr; });
+      _sync.add({ file: 'notices.json', type: 'insert', item: n });
       return n;
     },
     removeNotice: function (id) {
       _cache.notices = _cache.notices.filter(function (n) { return n.id !== id; });
-      _sync.add('notices.json', function (arr) { return arr.filter(function(n){return n.id!==id;}); });
+      _sync.add({ file: 'notices.json', type: 'delete', id: id });
     },
 
     /* ---------- 主设备台账 ---------- */
@@ -657,7 +754,7 @@
       if (!lineOk || !typeOk) return { ok: false, msg: '请选择所属产线和设备类型' };
       var e = { id: uid('e'), no: no, name: String(d.name || '').trim() || getEquipType(d.equipType).name, line: d.line, equipType: d.equipType, workstation: String(d.workstation || '').trim(), t: Date.now() };
       _cache.equipments.push(e);
-      _sync.add('equipments.json', function (arr) { if (!arr.some(function(x){return x.id===e.id;})) arr.push(e); return arr; });
+      _sync.add({ file: 'equipments.json', type: 'insert', item: e });
       return { ok: true, equipment: e };
     },
     updateEquipment: function (id, d) {
@@ -666,16 +763,13 @@
       var dup = this.getEquipmentByNo(no); if (dup && dup.id !== id) return false;
       e.no = no; e.name = String(d.name || '').trim() || getEquipType(d.equipType).name;
       e.line = d.line; e.equipType = d.equipType; e.workstation = String(d.workstation || '').trim();
-      _sync.add('equipments.json', function (arr) {
-        var x = arr.find(function(x){return x.id===id;});
-        if (x) { x.no=e.no; x.name=e.name; x.line=e.line; x.equipType=e.equipType; x.workstation=e.workstation; }
-        return arr;
-      });
+      _sync.add({ file: 'equipments.json', type: 'update', id: id,
+        patch: { no: e.no, name: e.name, line: e.line, equipType: e.equipType, workstation: e.workstation } });
       return true;
     },
     removeEquipment: function (id) {
       _cache.equipments = _cache.equipments.filter(function (e) { return e.id !== id; });
-      _sync.add('equipments.json', function (arr) { return arr.filter(function(e){return e.id!==id;}); });
+      _sync.add({ file: 'equipments.json', type: 'delete', id: id });
     },
 
     /* ---------- 统计 ---------- */
@@ -713,14 +807,15 @@
       };
     },
 
-    /* 重置（重新播种，覆盖云端） */
+    /* 重置（重新播种，覆盖云端；清空历史待补传队列） */
     reset: function () {
       _cache.orders = seedOrders(); _cache.equipments = seedEquipments();
       _cache.workers = seedWorkers(); _cache.notices = seedNotices(); _cache.feedbacks = seedFeedbacks();
       _cache.seq = 100 + _cache.orders.length;
       global.localStorage.removeItem('prod_repair_db_v1');
+      _sync.queue = [];
       ['orders', 'equipments', 'workers', 'notices', 'feedbacks'].forEach(function (f) {
-        _sync.add(f + '.json', function () { return _cache[f]; });
+        _sync.add({ file: f + '.json', type: 'replaceAll', data: _cache[f] });
       });
     }
   };
