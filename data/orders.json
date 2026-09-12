@@ -1,0 +1,318 @@
+[
+  {
+    "id": "omty1o6uk51h",
+    "no": "BX20260912106",
+    "line": "inject",
+    "equipType": "injection",
+    "equipNo": "ZS-120T-03",
+    "workstation": "注塑车间 03 号位",
+    "level": "urgent",
+    "fault": "注塑机开模异响，产品飞边严重，已停机待修，怀疑锁模机构磨损",
+    "images": [],
+    "reporter": "刘建军",
+    "phone": "138****8888",
+    "status": "processing",
+    "workerId": "w1",
+    "mode": "grab",
+    "records": [
+      {
+        "t": 1789194556076,
+        "text": "已到达注塑车间03号位，现场确认为锁模油缸销轴磨损，正在拆卸检查。"
+      },
+      {
+        "t": 1789196056076,
+        "text": "已更换备用销轴并重新调校锁模力，准备试模。"
+      }
+    ],
+    "result": "",
+    "downtimeMin": 0,
+    "rating": 0,
+    "ratingText": "",
+    "workerReply": "",
+    "createTime": 1789192756076,
+    "acceptTime": 1789193656076,
+    "completeTime": 0,
+    "timeline": [
+      {
+        "t": 1789192756076,
+        "action": "提交报修",
+        "note": "操作工刘建军提交报修，系统已通知维修班"
+      },
+      {
+        "t": 1789192756076,
+        "action": "消息通知",
+        "note": "已向注塑/冲压维修方向推送报修通知"
+      },
+      {
+        "t": 1789193656076,
+        "action": "接单",
+        "note": "王建国（机修钳工）已抢单，正在前往现场"
+      },
+      {
+        "t": 1789194556076,
+        "action": "处理记录",
+        "note": "已到达现场，确认为锁模油缸销轴磨损，正在拆卸检查。"
+      },
+      {
+        "t": 1789196056076,
+        "action": "处理记录",
+        "note": "已更换备用销轴并重新调校锁模力，准备试模。"
+      }
+    ]
+  },
+  {
+    "id": "omty1o6uk52p",
+    "no": "BX20260912105",
+    "line": "asm1",
+    "equipType": "assembly",
+    "equipNo": "ZZ-A1-07",
+    "workstation": "组装一线 07 工位",
+    "level": "normal",
+    "fault": "自动组装机 7 号工位卡料，端子送料不到位，每分钟约卡停 2-3 次",
+    "images": [],
+    "reporter": "陈晓梅",
+    "phone": "139****6666",
+    "status": "processing",
+    "workerId": "w2",
+    "mode": "assign",
+    "records": [
+      {
+        "t": 1789189756076,
+        "text": "检查发现送料导轨有积胶，正在清理并调整直振振幅。"
+      }
+    ],
+    "result": "",
+    "downtimeMin": 0,
+    "rating": 0,
+    "ratingText": "",
+    "workerReply": "",
+    "createTime": 1789186156076,
+    "acceptTime": 1789187956076,
+    "completeTime": 0,
+    "timeline": [
+      {
+        "t": 1789186156076,
+        "action": "提交报修",
+        "note": "操作工陈晓梅提交报修，系统已通知维修班"
+      },
+      {
+        "t": 1789186156076,
+        "action": "消息通知",
+        "note": "已向自动化/电气维修方向推送报修通知"
+      },
+      {
+        "t": 1789187956076,
+        "action": "管理员指派",
+        "note": "管理员指派 李志强（电气工程师）处理"
+      },
+      {
+        "t": 1789189756076,
+        "action": "处理记录",
+        "note": "送料导轨积胶，正在清理并调整直振振幅。"
+      }
+    ]
+  },
+  {
+    "id": "omty1o6uk1c3",
+    "no": "BX20260912104",
+    "line": "qc",
+    "equipType": "ccd",
+    "equipNo": "CCD-QC-02",
+    "workstation": "检测包装车间 02 号位",
+    "level": "normal",
+    "fault": "CCD 检测机误报率升高，良品频繁被判定为外观不良，影响过件率",
+    "images": [],
+    "reporter": "孙丽",
+    "phone": "137****5555",
+    "status": "pending",
+    "workerId": "",
+    "mode": "",
+    "records": [],
+    "result": "",
+    "downtimeMin": 0,
+    "rating": 0,
+    "ratingText": "",
+    "workerReply": "",
+    "createTime": 1789195756076,
+    "acceptTime": 0,
+    "completeTime": 0,
+    "timeline": [
+      {
+        "t": 1789195756076,
+        "action": "提交报修",
+        "note": "操作工孙丽提交报修，系统已通知维修班"
+      },
+      {
+        "t": 1789195756076,
+        "action": "消息通知",
+        "note": "已向检测设备维修方向推送报修通知，等待接单"
+      }
+    ]
+  },
+  {
+    "id": "omty1o6uk1z1",
+    "no": "BX20260912103",
+    "line": "stamp",
+    "equipType": "stamp",
+    "equipNo": "CY-65T-01",
+    "workstation": "冲压车间 01 号位",
+    "level": "urgent",
+    "fault": "冲压机离合器异响，滑块下行卡顿，已紧急停机",
+    "images": [],
+    "reporter": "周大勇",
+    "phone": "136****7777",
+    "status": "done",
+    "workerId": "w1",
+    "mode": "grab",
+    "records": [
+      {
+        "t": 1789117756076,
+        "text": "现场检查：离合器摩擦片磨损超标，制动间隙偏大。"
+      }
+    ],
+    "result": "更换离合器摩擦片组件，重新调整制动间隙，试冲 200 次无异常，设备恢复运行。",
+    "downtimeMin": 95,
+    "rating": 5,
+    "ratingText": "响应很快，停机不到两小时就恢复生产了！",
+    "workerReply": "",
+    "createTime": 1789103356076,
+    "acceptTime": 1789105156076,
+    "completeTime": 1789114156076,
+    "timeline": [
+      {
+        "t": 1789103356076,
+        "action": "提交报修",
+        "note": "操作工周大勇提交报修，系统已通知维修班"
+      },
+      {
+        "t": 1789103356076,
+        "action": "消息通知",
+        "note": "紧急停机工单，已加急推送给全体机修人员"
+      },
+      {
+        "t": 1789105156076,
+        "action": "接单",
+        "note": "王建国（机修钳工）已抢单"
+      },
+      {
+        "t": 1789117756076,
+        "action": "处理记录",
+        "note": "离合器摩擦片磨损超标，制动间隙偏大。"
+      },
+      {
+        "t": 1789114156076,
+        "action": "完成",
+        "note": "更换摩擦片组件并调整间隙，试冲正常，停机95分钟。"
+      },
+      {
+        "t": 1789124956076,
+        "action": "报修人评价",
+        "note": "★★★★★ 响应很快，停机不到两小时就恢复生产！"
+      }
+    ]
+  },
+  {
+    "id": "omty1o6uk720",
+    "no": "BX20260912102",
+    "line": "asm2",
+    "equipType": "crimp",
+    "equipNo": "YJ-B2-05",
+    "workstation": "组装二线 05 工位",
+    "level": "normal",
+    "fault": "端子压接机压接高度不稳定，抽检发现压接高度超差 0.03mm",
+    "images": [],
+    "reporter": "吴海燕",
+    "phone": "135****9999",
+    "status": "done",
+    "workerId": "w3",
+    "mode": "grab",
+    "records": [
+      {
+        "t": 1788944956076,
+        "text": "测量压接高度波动，发现 applicator 模具刀口磨损，更换模具配件。"
+      }
+    ],
+    "result": "更换压接模具刀片并校模，首件检验压接高度合格，连续抽检 50 件均在公差内。",
+    "downtimeMin": 40,
+    "rating": 4,
+    "ratingText": "修好后做了首件和抽检，比较放心。",
+    "workerReply": "",
+    "createTime": 1788937756076,
+    "acceptTime": 1788939756076,
+    "completeTime": 1788948556076,
+    "timeline": [
+      {
+        "t": 1788937756076,
+        "action": "提交报修",
+        "note": "操作工吴海燕提交报修，系统已通知维修班"
+      },
+      {
+        "t": 1788939756076,
+        "action": "接单",
+        "note": "张伟（机修钳工）已抢单"
+      },
+      {
+        "t": 1788944956076,
+        "action": "处理记录",
+        "note": "applicator 模具刀口磨损，更换模具配件。"
+      },
+      {
+        "t": 1788948556076,
+        "action": "完成",
+        "note": "更换模具刀片并校模，抽检合格，停机40分钟。"
+      },
+      {
+        "t": 1788955036076,
+        "action": "报修人评价",
+        "note": "★★★★ 修好后做了首件和抽检，比较放心。"
+      }
+    ]
+  },
+  {
+    "id": "omty1o6uk70i",
+    "no": "BX20260912101",
+    "line": "inject",
+    "equipType": "injection",
+    "equipNo": "ZS-90T-06",
+    "workstation": "注塑车间 06 号位",
+    "level": "normal",
+    "fault": "注塑机料筒温度 3 区波动 ±15℃，产品外观有色差",
+    "images": [],
+    "reporter": "郑卫东",
+    "phone": "134****2222",
+    "status": "done",
+    "workerId": "w2",
+    "mode": "assign",
+    "records": [],
+    "result": "检查为 3 区加热圈接触不良，紧固接线并更换热电偶，温度恢复稳定，色差消失。",
+    "downtimeMin": 30,
+    "rating": 5,
+    "ratingText": "",
+    "workerReply": "",
+    "createTime": 1788764956076,
+    "acceptTime": 1788766756076,
+    "completeTime": 1788772156076,
+    "timeline": [
+      {
+        "t": 1788764956076,
+        "action": "提交报修",
+        "note": "操作工郑卫东提交报修，系统已通知维修班"
+      },
+      {
+        "t": 1788766756076,
+        "action": "管理员指派",
+        "note": "管理员指派 李志强（电气工程师）处理"
+      },
+      {
+        "t": 1788772156076,
+        "action": "完成",
+        "note": "紧固加热圈接线、更换热电偶，温度稳定，停机30分钟。"
+      },
+      {
+        "t": 1788782236076,
+        "action": "报修人评价",
+        "note": "★★★★★ 评价已提交"
+      }
+    ]
+  }
+]
