@@ -79,11 +79,11 @@
   /* ---------- 工具 ---------- */
   function $(s, ctx) { return (ctx || document).querySelector(s); }
   function $all(s, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(s)); }
-  function toast(msg) {
+  function toast(msg, ms) {
     var t = $('#toast');
     t.textContent = msg; t.classList.add('show');
     clearTimeout(t._timer);
-    t._timer = setTimeout(function () { t.classList.remove('show'); }, 2200);
+    t._timer = setTimeout(function () { t.classList.remove('show'); }, ms || 2200);
   }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -218,6 +218,19 @@
   /* ============================================================
    * 登录
    * ============================================================ */
+  /* 填充维修员下拉（异步云端数据到达后需再次调用） */
+  function fillWorkerOptions() {
+    var sel = $('#lg-rp-select');
+    if (!sel) return;
+    var prev = sel.value;
+    var list = DB.listWorkers();
+    sel.innerHTML = list.map(function (w) {
+      return '<option value="' + w.id + '">' + esc(w.name) + '（' + esc(w.skill) + ' · 负责 ' + esc(w.scope) + '）</option>';
+    }).join('');
+    if (list.length === 0) sel.innerHTML = '<option value="">数据加载中…</option>';
+    else if (prev && list.some(function (w) { return w.id === prev; })) sel.value = prev;
+  }
+
   function initLogin() {
     // 身份切换
     $all('.login-role').forEach(function (el) {
@@ -229,10 +242,8 @@
       };
     });
 
-    // 维修员下拉
-    $('#lg-rp-select').innerHTML = DB.listWorkers().map(function (w) {
-      return '<option value="' + w.id + '">' + esc(w.name) + '（' + esc(w.skill) + ' · 负责 ' + esc(w.scope) + '）</option>';
-    }).join('');
+    // 维修员下拉（云端数据到达后可能需要重填，见 fillWorkerOptions）
+    fillWorkerOptions();
 
     $('#btn-login-operator').onclick = loginOperator;
     $('#btn-login-repairman').onclick = loginRepairman;
@@ -625,6 +636,8 @@
     }
 
     $('#f-submit').onclick = function () {
+      var btn = $('#f-submit');
+      if (btn.disabled) return;
       if (!state.form.line) { toast('请选择所属产线'); return; }
       if (!state.form.equipType) { toast('请选择设备类型'); return; }
       var equipNo = $('#f-equipno').value.trim();
@@ -637,6 +650,7 @@
       if (!fault) { toast('请描述故障现象'); return; }
       if (!name) { toast('请填写报修人姓名'); return; }
       if (phone && !/^1\d{10}$/.test(phone)) { toast('联系电话格式不正确'); return; }
+      btn.disabled = true; btn.textContent = '正在上传报修单…';
       var o = DB.createOrder({
         line: state.form.line, equipType: state.form.equipType,
         equipNo: equipNo, workstation: station, level: state.form.level,
@@ -646,8 +660,16 @@
       state.role.name = name; state.role.phone = phone;
       DB.setRole(state.role);
       clearScan();
-      toast('报修提交成功，已通知维修班！');
+      toast('正在上传报修单…', 12000);
       goPage('mine');
+      // 等待云端确认（最多 15 秒）；失败时工单已持久化，网络恢复自动补传
+      DB.whenSynced(15000).then(function (r) {
+        if (r.ok && DB.pendingCount() === 0) {
+          toast('报修提交成功，已通知维修班！');
+        } else {
+          toast('报修单已保存在本机，当前网络较慢，恢复网络后将自动补传，无需重新填写', 5000);
+        }
+      });
     };
   }
 
@@ -674,6 +696,7 @@
       '<div class="oc2-head"><div class="oc2-title"><span class="oc2-eq">' + eq.icon + '</span><b>' + esc(o.equipNo) + '</b>' +
         '<span class="mono">' + esc(o.no) + '</span></div>' +
         '<div style="display:flex;gap:8px;align-items:center">' +
+        (DB.isOrderPending && DB.isOrderPending(o.id) ? '<span class="normal-tag" style="background:#fef3c7;color:#b45309">⏳ 待同步</span>' : '') +
         (o.level === 'urgent' ? '<span class="urgent-tag">紧急·停机</span>' : '<span class="normal-tag">一般故障</span>') +
         statusTag(o.status) + '</div></div>' +
       '<div class="oc2-meta">' + lineTag(o.line) + '<span class="muted">📍 ' + esc(o.workstation) + '</span>' + modeTag(o) + '</div>' +
@@ -1586,6 +1609,8 @@
     document.body.appendChild(tip);
     try { await DB.init(); } catch (e) { tip.textContent = '⚠ 数据同步失败，部分功能可能不可用'; tip.style.background = '#ef4444'; setTimeout(function(){tip.remove();}, 3000); }
     tip.remove();
+    // 云端数据到达后重新填充维修员下拉
+    fillWorkerOptions();
 
     $('#btn-logout').onclick = function () {
       if (confirm('确认退出登录？')) logout();
@@ -1641,10 +1666,11 @@
       applyPendingScan();
     });
 
-    // 定时刷新铃铛 + 云端数据轮询（跨设备同步）
+    // 定时刷新铃铛 + 云端数据轮询（跨设备同步）+ 同步状态指示
     var _poll = 0;
     setInterval(function () {
       if (state.role) renderBell();
+      syncIndicator();
       _poll++;
       if (_poll >= 7 && state.role) { // ~21秒拉取一次云端数据
         _poll = 0;
@@ -1658,6 +1684,36 @@
       }
     }, 3000);
     renderBell();
+
+    // 网络恢复 / 回到页面时立即补传本地积压数据
+    window.addEventListener('online', function () {
+      DB.kickSync();
+      if (DB.pendingCount() > 0) toast('网络已恢复，正在补传报修数据…');
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) { DB.kickSync(); syncIndicator(); }
+    });
+  }
+
+  /* 底部云端同步状态条（让手机端能直接看出是否连上 GitHub 云端） */
+  function syncIndicator() {
+    var bar = document.getElementById('sync-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'sync-bar';
+      bar.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99998;padding:7px 16px;border-radius:18px;font-size:12px;color:#fff;display:none;box-shadow:0 2px 10px rgba(0,0,0,.25);max-width:88vw;text-align:center;line-height:1.4';
+      document.body.appendChild(bar);
+    }
+    var pending = DB.pendingCount ? DB.pendingCount() : 0;
+    var dbg = DB.debugSync ? DB.debugSync() : {};
+    if (pending > 0) {
+      if (dbg.processing) { bar.textContent = '☁ 正在同步到云端…'; bar.style.background = '#3b82f6'; }
+      else if (dbg.lastError) { bar.textContent = '⚠ 当前无法连接云端，报修单已保存在本机，将自动补传'; bar.style.background = '#f59e0b'; }
+      else { bar.textContent = '☁ 等待同步…'; bar.style.background = '#3b82f6'; }
+      bar.style.display = 'block';
+    } else {
+      bar.style.display = 'none';
+    }
   }
 
   document.addEventListener('DOMContentLoaded', function () { init(); });
