@@ -1,5 +1,42 @@
 [
   {
+    "id": "omty1veyj2o1",
+    "no": "BX20260912107",
+    "line": "inject",
+    "equipType": "injection",
+    "equipNo": "SYNC-TEST-02",
+    "workstation": "注塑车间 测试",
+    "level": "normal",
+    "fault": "同步测试故障SYNC02",
+    "images": [],
+    "reporter": "同步测试",
+    "phone": "13900000000",
+    "status": "pending",
+    "workerId": "",
+    "mode": "",
+    "records": [],
+    "result": "",
+    "downtimeMin": 0,
+    "rating": 0,
+    "ratingText": "",
+    "workerReply": "",
+    "createTime": 1789197293179,
+    "acceptTime": 0,
+    "completeTime": 0,
+    "timeline": [
+      {
+        "t": 1789197293179,
+        "action": "提交报修",
+        "note": "操作工同步测试提交报修，系统已通知维修班"
+      },
+      {
+        "t": 1789197293179,
+        "action": "消息通知",
+        "note": "已向相关维修方向推送报修通知，等待接单"
+      }
+    ]
+  },
+  {
     "id": "omty1rrvb7i8",
     "no": "BX20260912107",
     "line": "inject",
