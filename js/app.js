@@ -1575,8 +1575,17 @@
   /* ============================================================
    * 初始化
    * ============================================================ */
-  function init() {
+  async function init() {
     initLogin();
+
+    // 初始化云端数据
+    var tip = document.createElement('div');
+    tip.id = 'init-tip';
+    tip.style.cssText = 'position:fixed;top:0;left:0;right:0;text-align:center;padding:8px;background:#3b82f6;color:#fff;font-size:14px;z-index:99999';
+    tip.textContent = '正在同步设备数据…';
+    document.body.appendChild(tip);
+    try { await DB.init(); } catch (e) { tip.textContent = '⚠ 数据同步失败，部分功能可能不可用'; tip.style.background = '#ef4444'; setTimeout(function(){tip.remove();}, 3000); }
+    tip.remove();
 
     $('#btn-logout').onclick = function () {
       if (confirm('确认退出登录？')) logout();
@@ -1632,10 +1641,24 @@
       applyPendingScan();
     });
 
-    // 定时刷新铃铛
-    setInterval(function () { if (state.role) renderBell(); }, 3000);
+    // 定时刷新铃铛 + 云端数据轮询（跨设备同步）
+    var _poll = 0;
+    setInterval(function () {
+      if (state.role) renderBell();
+      _poll++;
+      if (_poll >= 7 && state.role) { // ~21秒拉取一次云端数据
+        _poll = 0;
+        DB.refresh().then(function (changed) {
+          if (!changed) return;
+          renderBell();
+          if (['home', 'wall', 'mine', 'orders', 'myrepairs', 'stats', 'equip', 'records'].indexOf(state.page) >= 0) {
+            renderPage();
+          }
+        }).catch(function () {});
+      }
+    }, 3000);
     renderBell();
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', function () { init(); });
 })();
